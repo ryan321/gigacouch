@@ -22,6 +22,7 @@ pub const PHONE_LAYOUTS: &[&str] = &[
     "touchpad",
     "lanes-4",
     "two-choice",
+    "draw",
 ];
 
 /// The layout a phone shows on the shelf and in games that name none.
@@ -46,14 +47,36 @@ const SOUND_TYPES: &[(&str, &str)] = &[
     ("wav", "audio/wav"),
 ];
 
-/// One of a game's own phone sounds, checked and resolved to its file.
+/// One of a game's own phone files (a sound or an image), checked and
+/// resolved to its file inside web/.
 #[derive(Debug, Clone)]
-pub struct GameSound {
+pub struct GameFile {
     pub name: String,
     pub path: std::path::PathBuf,
     pub content_type: &'static str,
     pub extension: &'static str,
 }
+pub type GameSound = GameFile;
+pub type GameImage = GameFile;
+
+/// Limits for a game's own phone images, shown on private phone screens.
+pub const MAX_IMAGE_BYTES: u64 = 512 * 1024;
+const MAX_IMAGES_TOTAL_BYTES: u64 = 4 * 1024 * 1024;
+const MAX_IMAGES: usize = 64;
+/// Raster formats only: an SVG can carry script.
+const IMAGE_TYPES: &[(&str, &str)] = &[
+    ("png", "image/png"),
+    ("jpg", "image/jpeg"),
+    ("jpeg", "image/jpeg"),
+    ("webp", "image/webp"),
+];
+
+/// Button keys a layout can use: the five every player has.
+pub const LAYOUT_KEYS: &[&str] = &["south", "east", "west", "north", "start"];
+/// Colors a layout or a phone screen can use, from the brand palette.
+pub const PHONE_COLORS: &[&str] = &["mint", "blue", "amber", "coral", "panel"];
+const MAX_CUSTOM_LAYOUTS: usize = 16;
+const MAX_LAYOUT_CONTROLS: usize = 16;
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -73,6 +96,12 @@ struct Phone {
     /// Sound name to a file inside web/, for example "sounds/ding.mp3".
     #[serde(default)]
     sounds: std::collections::BTreeMap<String, String>,
+    /// Image name to a file inside web/, for private phone screens.
+    #[serde(default)]
+    images: std::collections::BTreeMap<String, String>,
+    /// The game's own controller layouts, by name. See `check_layout`.
+    #[serde(default)]
+    layouts: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -94,6 +123,8 @@ struct RawPackage {
 pub struct WebPackage {
     raw: RawPackage,
     sounds: Vec<GameSound>,
+    images: Vec<GameImage>,
+    layouts: serde_json::Map<String, serde_json::Value>,
 }
 
 impl WebPackage {
@@ -122,9 +153,13 @@ impl WebPackage {
         let mut package = Self {
             raw,
             sounds: Vec::new(),
+            images: Vec::new(),
+            layouts: serde_json::Map::new(),
         };
+        package.layouts = check_layouts(&package.raw)?;
         package.validate(package_dir)?;
         package.sounds = check_sounds(&package.raw, package_dir)?;
+        package.images = check_images(&package.raw, package_dir)?;
         Ok(package)
     }
 
@@ -153,6 +188,16 @@ impl WebPackage {
     /// The game's own phone sounds, already checked.
     pub fn phone_sounds(&self) -> &[GameSound] {
         &self.sounds
+    }
+
+    /// The game's own phone images, already checked.
+    pub fn phone_images(&self) -> &[GameImage] {
+        &self.images
+    }
+
+    /// The game's own phone layouts, already checked, by name.
+    pub fn phone_layouts(&self) -> &serde_json::Map<String, serde_json::Value> {
+        &self.layouts
     }
 
     pub fn web_relative_entry(&self) -> &str {
@@ -198,9 +243,10 @@ impl WebPackage {
         }
         if let Some(layout) = raw.phone.as_ref().and_then(|phone| phone.layout.as_deref())
             && !PHONE_LAYOUTS.contains(&layout)
+            && !self.layouts.contains_key(layout)
         {
             return Err(Error::Invalid(format!(
-                "phone.layout must be one of {}",
+                "phone.layout must be one of {}, or one of the game's phone.layouts",
                 PHONE_LAYOUTS.join(", ")
             )));
         }
@@ -222,29 +268,75 @@ fn check_sounds(raw: &RawPackage, package_dir: &Path) -> Result<Vec<GameSound>, 
     let Some(phone) = &raw.phone else {
         return Ok(Vec::new());
     };
-    if phone.sounds.len() > MAX_SOUNDS {
+    check_files(
+        &phone.sounds,
+        package_dir,
+        &FileRules {
+            what: "sound",
+            types: SOUND_TYPES,
+            formats: ".mp3, .m4a, or .wav",
+            max_each: MAX_SOUND_BYTES,
+            max_total: MAX_SOUNDS_TOTAL_BYTES,
+            max_count: MAX_SOUNDS,
+            reserved: STOCK_SOUNDS,
+        },
+    )
+}
+
+/// Checks a game's own phone images the same way.
+fn check_images(raw: &RawPackage, package_dir: &Path) -> Result<Vec<GameImage>, Error> {
+    let Some(phone) = &raw.phone else {
+        return Ok(Vec::new());
+    };
+    check_files(
+        &phone.images,
+        package_dir,
+        &FileRules {
+            what: "image",
+            types: IMAGE_TYPES,
+            formats: ".png, .jpg, or .webp",
+            max_each: MAX_IMAGE_BYTES,
+            max_total: MAX_IMAGES_TOTAL_BYTES,
+            max_count: MAX_IMAGES,
+            reserved: &[],
+        },
+    )
+}
+
+struct FileRules {
+    what: &'static str,
+    types: &'static [(&'static str, &'static str)],
+    formats: &'static str,
+    max_each: u64,
+    max_total: u64,
+    max_count: usize,
+    reserved: &'static [&'static str],
+}
+
+fn check_files(
+    files: &std::collections::BTreeMap<String, String>,
+    package_dir: &Path,
+    rules: &FileRules,
+) -> Result<Vec<GameFile>, Error> {
+    let what = rules.what;
+    if files.len() > rules.max_count {
         return Err(Error::Invalid(format!(
-            "phone.sounds may name at most {MAX_SOUNDS} sounds"
+            "phone.{what}s may name at most {} {what}s",
+            rules.max_count
         )));
     }
     let web = package_dir.join("web");
     let mut total = 0_u64;
-    let mut sounds = Vec::new();
-    for (name, relative) in &phone.sounds {
-        let good_name = !name.is_empty()
-            && name.len() <= 32
-            && !name.starts_with('-')
-            && name
-                .bytes()
-                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
-        if !good_name {
+    let mut checked = Vec::new();
+    for (name, relative) in files {
+        if !good_phone_name(name) {
             return Err(Error::Invalid(format!(
-                "phone sound name \"{name}\" must be 1–32 lowercase letters, digits, or dashes"
+                "phone {what} name \"{name}\" must be 1–32 lowercase letters, digits, or dashes"
             )));
         }
-        if STOCK_SOUNDS.contains(&name.as_str()) {
+        if rules.reserved.contains(&name.as_str()) {
             return Err(Error::Invalid(format!(
-                "phone sound \"{name}\" is a stock sound; give the game's own sound another name"
+                "phone {what} \"{name}\" is a stock {what}; give the game's own {what} another name"
             )));
         }
         let path = Path::new(relative);
@@ -256,7 +348,7 @@ fn check_sounds(raw: &RawPackage, package_dir: &Path) -> Result<Vec<GameSound>, 
             });
         if !inside {
             return Err(Error::Invalid(format!(
-                "phone sound \"{name}\" must be a file path inside web/"
+                "phone {what} \"{name}\" must be a file path inside web/"
             )));
         }
         let extension = path
@@ -264,13 +356,15 @@ fn check_sounds(raw: &RawPackage, package_dir: &Path) -> Result<Vec<GameSound>, 
             .and_then(|ext| ext.to_str())
             .map(str::to_ascii_lowercase)
             .unwrap_or_default();
-        let Some((extension, content_type)) = SOUND_TYPES
+        let Some((extension, content_type)) = rules
+            .types
             .iter()
             .find(|(known, _)| *known == extension)
             .copied()
         else {
             return Err(Error::Invalid(format!(
-                "phone sound \"{name}\" must be .mp3, .m4a, or .wav"
+                "phone {what} \"{name}\" must be {}",
+                rules.formats
             )));
         };
         let file = web.join(path);
@@ -279,29 +373,183 @@ fn check_sounds(raw: &RawPackage, package_dir: &Path) -> Result<Vec<GameSound>, 
             .filter(|meta| meta.is_file())
             .map(|meta| meta.len())
             .ok_or_else(|| {
-                Error::Invalid(format!("phone sound \"{name}\" is missing: web/{relative}"))
+                Error::Invalid(format!(
+                    "phone {what} \"{name}\" is missing: web/{relative}"
+                ))
             })?;
-        if size > MAX_SOUND_BYTES {
+        if size > rules.max_each {
             return Err(Error::Invalid(format!(
-                "phone sound \"{name}\" is over {} KiB",
-                MAX_SOUND_BYTES / 1024
+                "phone {what} \"{name}\" is over {} KiB",
+                rules.max_each / 1024
             )));
         }
         total += size;
-        sounds.push(GameSound {
+        checked.push(GameFile {
             name: name.clone(),
             path: file,
             content_type,
             extension,
         });
     }
-    if total > MAX_SOUNDS_TOTAL_BYTES {
+    if total > rules.max_total {
         return Err(Error::Invalid(format!(
-            "phone sounds add up to more than {} MiB",
-            MAX_SOUNDS_TOTAL_BYTES / (1024 * 1024)
+            "phone {what}s add up to more than {} MiB",
+            rules.max_total / (1024 * 1024)
         )));
     }
-    Ok(sounds)
+    Ok(checked)
+}
+
+fn good_phone_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= 32
+        && !name.starts_with('-')
+        && name
+            .bytes()
+            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-')
+}
+
+/// Checks a game's own controller layouts and returns them cleaned: only the
+/// fields the pad draws, every number inside the screen, every button one of
+/// the five keys. The pad draws layouts from this data alone.
+fn check_layouts(raw: &RawPackage) -> Result<serde_json::Map<String, serde_json::Value>, Error> {
+    let Some(phone) = &raw.phone else {
+        return Ok(serde_json::Map::new());
+    };
+    if phone.layouts.len() > MAX_CUSTOM_LAYOUTS {
+        return Err(Error::Invalid(format!(
+            "phone.layouts may name at most {MAX_CUSTOM_LAYOUTS} layouts"
+        )));
+    }
+    let mut clean = serde_json::Map::new();
+    for (name, spec) in &phone.layouts {
+        if !good_phone_name(name) || PHONE_LAYOUTS.contains(&name.as_str()) {
+            return Err(Error::Invalid(format!(
+                "phone layout \"{name}\" needs a lowercase name that is not a built-in layout"
+            )));
+        }
+        clean.insert(name.clone(), check_layout(name, spec)?);
+    }
+    Ok(clean)
+}
+
+fn check_layout(name: &str, spec: &serde_json::Value) -> Result<serde_json::Value, Error> {
+    use serde_json::{Value, json};
+    let bad = |why: &str| Error::Invalid(format!("phone layout \"{name}\": {why}"));
+    let fraction = |value: &Value, what: &str| -> Result<f64, Error> {
+        value
+            .as_f64()
+            .filter(|number| (0.0..=1.0).contains(number))
+            .ok_or_else(|| bad(&format!("{what} must be a number from 0 to 1")))
+    };
+    let text = |value: &Value, most: usize, what: &str| -> Result<Option<String>, Error> {
+        match value {
+            Value::Null => Ok(None),
+            Value::String(words)
+                if words.chars().count() <= most && !words.chars().any(char::is_control) =>
+            {
+                Ok(Some(words.clone()))
+            }
+            _ => Err(bad(&format!(
+                "{what} must be text of at most {most} characters"
+            ))),
+        }
+    };
+    let rect = |value: &Value| -> Result<Value, Error> {
+        let parts = value
+            .as_array()
+            .filter(|parts| parts.len() == 4)
+            .ok_or_else(|| bad("rect must be [x, y, width, height]"))?;
+        let numbers: Vec<f64> = parts
+            .iter()
+            .map(|part| fraction(part, "rect"))
+            .collect::<Result<_, _>>()?;
+        Ok(json!(numbers))
+    };
+    let controls = |list: &Value| -> Result<Value, Error> {
+        let list = list
+            .as_array()
+            .ok_or_else(|| bad("landscape and portrait are lists of controls"))?;
+        if list.is_empty() || list.len() > MAX_LAYOUT_CONTROLS {
+            return Err(bad(&format!(
+                "a layout has 1–{MAX_LAYOUT_CONTROLS} controls"
+            )));
+        }
+        let mut out = Vec::new();
+        for control in list {
+            let kind = control["type"].as_str().unwrap_or("");
+            let mut item = serde_json::Map::new();
+            item.insert("type".into(), json!(kind));
+            match kind {
+                "stick" => {
+                    let axis = control["axis"].as_str().unwrap_or("move");
+                    if axis != "move" && axis != "look" {
+                        return Err(bad("a stick's axis is move or look"));
+                    }
+                    item.insert("axis".into(), json!(axis));
+                    item.insert("rect".into(), rect(&control["rect"])?);
+                }
+                "slider" | "touchpad" | "canvas" | "palette" => {
+                    item.insert("rect".into(), rect(&control["rect"])?);
+                }
+                "dpad" | "button" | "arrow" => {
+                    if kind == "button" {
+                        let key = control["key"].as_str().unwrap_or("");
+                        if !LAYOUT_KEYS.contains(&key) {
+                            return Err(bad(
+                                "a button's key is south, east, west, north, or start",
+                            ));
+                        }
+                        item.insert("key".into(), json!(key));
+                        if let Some(color) = control["color"].as_str() {
+                            if !PHONE_COLORS.contains(&color) {
+                                return Err(bad("color is mint, blue, amber, coral, or panel"));
+                            }
+                            item.insert("color".into(), json!(color));
+                        }
+                        if control["small"].as_bool() == Some(true) {
+                            item.insert("small".into(), json!(true));
+                        }
+                    }
+                    if kind == "arrow" {
+                        let dir = control["dir"]
+                            .as_i64()
+                            .filter(|dir| *dir == -1 || *dir == 1)
+                            .ok_or_else(|| bad("an arrow's dir is -1 or 1"))?;
+                        item.insert("dir".into(), json!(dir));
+                    }
+                    if kind != "dpad" {
+                        let label = text(&control["label"], 16, "label")?
+                            .ok_or_else(|| bad("buttons and arrows need a label"))?;
+                        item.insert("label".into(), json!(label));
+                    }
+                    if kind == "button" && !control["rect"].is_null() {
+                        item.insert("rect".into(), rect(&control["rect"])?);
+                    } else {
+                        item.insert("x".into(), json!(fraction(&control["x"], "x")?));
+                        item.insert("y".into(), json!(fraction(&control["y"], "y")?));
+                        item.insert("size".into(), json!(fraction(&control["size"], "size")?));
+                    }
+                }
+                _ => {
+                    return Err(bad(
+                        "each control's type is stick, dpad, button, arrow, slider, touchpad, canvas, or palette",
+                    ));
+                }
+            }
+            if let Some(hint) = text(&control["hint"], 60, "hint")? {
+                item.insert("hint".into(), json!(hint));
+            }
+            out.push(Value::Object(item));
+        }
+        Ok(Value::Array(out))
+    };
+    let mut clean = serde_json::Map::new();
+    clean.insert("landscape".into(), controls(&spec["landscape"])?);
+    if !spec["portrait"].is_null() {
+        clean.insert("portrait".into(), controls(&spec["portrait"])?);
+    }
+    Ok(Value::Object(clean))
 }
 
 fn validate_entrypoint(entrypoint: &str) -> Result<(), Error> {

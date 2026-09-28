@@ -23,10 +23,11 @@ use std::{
 
 pub use account::AccountStore;
 pub use package::{
-    DEFAULT_PHONE_LAYOUT, GameSound, MAX_SOUND_BYTES, PHONE_LAYOUTS, STOCK_SOUNDS, WebPackage,
+    DEFAULT_PHONE_LAYOUT, GameFile, GameImage, GameSound, LAYOUT_KEYS, MAX_IMAGE_BYTES,
+    MAX_SOUND_BYTES, PHONE_COLORS, PHONE_LAYOUTS, STOCK_SOUNDS, WebPackage,
 };
 pub use phones::{PREFERRED_PORT as PHONE_PORT, PhoneListen, RUMBLE_PRESETS};
-pub use session::{Buttons, DevicePost, Session, Snapshot};
+pub use session::{Buttons, DevicePost, REJOIN_WINDOW, Session, Snapshot};
 
 /// A Home request to start a native game. The caller spawns the process and replies.
 pub struct PlayRequest {
@@ -341,7 +342,13 @@ fn dispatch(state: &State, method: &str, url: &str, body: &[u8]) -> Reply {
         ("GET", "/__gigacouch/input.js") => text_response(200, "text/javascript; charset=utf-8", INPUT_JS.as_bytes().to_vec()),
         ("GET", "/__gigacouch/v1/snapshot") => {
             let snapshot = state.session.lock().expect("session").snapshot();
-            text_response(200, "application/json", serde_json::to_vec(&snapshot).unwrap_or_default())
+            let mut value = serde_json::to_value(&snapshot).unwrap_or_default();
+            // Phone events (choices, typed answers, drawing) ride along; the
+            // page is their only reader.
+            if let Some(hub) = &state.phones {
+                value["phone_events"] = serde_json::Value::Array(hub.take_events());
+            }
+            text_response(200, "application/json", value.to_string().into_bytes())
         }
         ("GET", "/__gigacouch/v1/control") => {
             let quit = state.game_quit.load(Ordering::SeqCst);
@@ -379,14 +386,7 @@ fn dispatch(state: &State, method: &str, url: &str, body: &[u8]) -> Reply {
             // {"player": 2, "name": "ding"}, or "player": "all" for every phone.
             let request = serde_json::from_slice::<serde_json::Value>(body).unwrap_or_default();
             let name = request["name"].as_str().unwrap_or("");
-            let player = match &request["player"] {
-                serde_json::Value::String(all) if all == "all" => Ok(None),
-                value => value
-                    .as_u64()
-                    .and_then(|number| u16::try_from(number).ok())
-                    .map(Some)
-                    .ok_or("player must be a player number or \"all\""),
-            };
+            let player = phones::parse_target(&request["player"]);
             match (&state.phones, player) {
                 (None, _) => text_response(409, "application/json", br#"{"ok":false,"error":"phones are not connected to this host","code":"NO_PHONES"}"#.to_vec()),
                 (_, Err(error)) => text_response(400, "application/json", serde_json::json!({"ok": false, "error": error, "code": "BAD_SOUND"}).to_string().into_bytes()),
@@ -399,14 +399,7 @@ fn dispatch(state: &State, method: &str, url: &str, body: &[u8]) -> Reply {
         ("POST", "/__gigacouch/v1/phone/rumble") => {
             // {"player": 2, "pattern": "hit"}, a length, or [on, off, on, ...].
             let request = serde_json::from_slice::<serde_json::Value>(body).unwrap_or_default();
-            let player = match &request["player"] {
-                serde_json::Value::String(all) if all == "all" => Ok(None),
-                value => value
-                    .as_u64()
-                    .and_then(|number| u16::try_from(number).ok())
-                    .map(Some)
-                    .ok_or("player must be a player number or \"all\""),
-            };
+            let player = phones::parse_target(&request["player"]);
             let pattern = phones::rumble_pattern(&request["pattern"]);
             match (&state.phones, player, pattern) {
                 (None, _, _) => text_response(409, "application/json", br#"{"ok":false,"error":"phones are not connected to this host","code":"NO_PHONES"}"#.to_vec()),
@@ -415,6 +408,46 @@ fn dispatch(state: &State, method: &str, url: &str, body: &[u8]) -> Reply {
                     let phones = hub.rumble(state, player, &pattern);
                     text_response(200, "application/json", serde_json::json!({"ok": true, "phones": phones}).to_string().into_bytes())
                 }
+            }
+        }
+        ("POST", "/__gigacouch/v1/phone/screen")
+        | ("POST", "/__gigacouch/v1/phone/ask")
+        | ("POST", "/__gigacouch/v1/phone/labels") => {
+            // {"player": 2 | "all" | "audience", "screen" | "ask" | "labels": {...} | null}
+            let request = serde_json::from_slice::<serde_json::Value>(body).unwrap_or_default();
+            let field = path.rsplit('/').next().unwrap_or("");
+            let target = phones::parse_target(&request["player"]);
+            let result = match (&state.phones, target) {
+                (None, _) => Err("phones are not connected to this host".to_string()),
+                (_, Err(error)) => Err(error.to_string()),
+                (Some(hub), Ok(target)) => match field {
+                    "screen" => hub.show(state, target, &request["screen"]),
+                    "ask" => hub.ask(state, target, &request["ask"]),
+                    _ => hub.labels(state, target, &request["labels"]),
+                },
+            };
+            match result {
+                Ok(phones) => text_response(200, "application/json", serde_json::json!({"ok": true, "phones": phones}).to_string().into_bytes()),
+                Err(error) => text_response(400, "application/json", serde_json::json!({"ok": false, "error": error, "code": "BAD_PHONE_REQUEST"}).to_string().into_bytes()),
+            }
+        }
+        ("GET", "/__gigacouch/v1/home/remote") => {
+            // A game a phone picked from the shelf, for Home to start. Once.
+            let open = state.phones.as_ref().and_then(|hub| hub.take_open_request());
+            text_response(200, "application/json", serde_json::json!({ "open": open }).to_string().into_bytes())
+        }
+        ("GET", avatar) if avatar.starts_with("/__gigacouch/v1/avatar/") => {
+            let token = avatar
+                .trim_start_matches("/__gigacouch/v1/avatar/")
+                .trim_end_matches(".jpg");
+            match state
+                .phones
+                .as_ref()
+                .and_then(|hub| hub.avatar_file(token))
+                .and_then(|file| std::fs::read(file).ok())
+            {
+                Some(bytes) => text_response(200, "image/jpeg", bytes),
+                None => text_response(404, "text/plain; charset=utf-8", b"not found".to_vec()),
             }
         }
         ("GET", "/__gigacouch/v1/phones") => {

@@ -36,6 +36,7 @@ HOME_FILES = (
     "runtimes/web/home",
     "runtimes/web/examples/blob-island",
     "runtimes/web/examples/controller-gallery",
+    "runtimes/web/examples/phone-lab",
 )
 
 
@@ -54,6 +55,18 @@ def require_inputs():
         raise RuntimeError(
             f"Electron {ELECTRON_VERSION} is not at {ELECTRON_APP}. "
             "Run python3 runtimes/web/fetch_shell.py first. This build does not download it."
+        )
+
+
+def refuse_if_running(app: Path):
+    """Replacing a running app's files leaves it unable to open new pages:
+    they come up blank. Stop instead, and say what to do."""
+    running = subprocess.run(
+        ["pgrep", "-f", str(app / "Contents")], capture_output=True, text=True
+    ).stdout.split()
+    if running:
+        raise RuntimeError(
+            f"{APP_NAME} is running from {app}. Quit it (Cmd+Q), then build again."
         )
 
 
@@ -135,9 +148,10 @@ def main():
     args = parser.parse_args()
     require_inputs()
     version = json.loads((SHELL / "package.json").read_text(encoding="utf-8"))["version"]
+    stage = OUTPUT / "stage"
+    refuse_if_running(stage / f"{APP_NAME}.app")
     host = build_host()
 
-    stage = OUTPUT / "stage"
     if stage.exists():
         shutil.rmtree(stage)
     stage.mkdir(parents=True)

@@ -72,6 +72,9 @@
   #menu .close { text-align: center; color: var(--muted); }
   #player { flex: none; font-weight: 700; font-size: 15px; padding: 6px 12px; border-radius: 999px; background: var(--mint); color: var(--bg); }
   #controls { flex: 1; position: relative; min-height: 0; }
+  /* The controls redraw on every resize (the phone keyboard opening is one);
+     a game's screen or question sits beside them and is never rebuilt. */
+  #pad-controls { position: absolute; inset: 0; }
   .zone { position: absolute; }
   .zone + .zone { border-left: 1px solid var(--line); }
   .zone .hint { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 14px; text-align: center; padding: 16px; pointer-events: none; }
@@ -87,6 +90,7 @@
     z-index: 2;
   }
   .face.rect { border-radius: 22px; }
+  .face.dark { color: var(--ink); border: 1px solid var(--line); box-shadow: none; }
   .face.small { border-radius: 999px; font-size: 14px !important; background: var(--panel) !important; color: var(--ink); border: 1px solid var(--line); box-shadow: none; }
   .face small { display: block; font-size: 11px; font-weight: 600; margin-top: 4px; opacity: .75; }
   .face.down { transform: scale(.94); filter: brightness(.85); }
@@ -116,6 +120,43 @@
   }
   #tip span { flex: 1; }
   #tip button { font: inherit; font-weight: 600; color: var(--muted); background: none; border: none; padding: 4px 6px; }
+  #signal { display: inline-flex; align-items: flex-end; gap: 2px; height: 14px; flex: none; }
+  #signal i { width: 4px; border-radius: 1px; background: var(--line); }
+  #signal i:nth-child(1) { height: 5px; } #signal i:nth-child(2) { height: 9px; } #signal i:nth-child(3) { height: 14px; }
+  #signal.good i { background: var(--mint); }
+  #signal.fair i:nth-child(-n+2) { background: var(--amber); }
+  #signal.poor i:nth-child(1) { background: var(--coral); }
+  #audience-badge { flex: none; font-weight: 700; font-size: 14px; padding: 5px 11px; border-radius: 999px; background: var(--blue); color: var(--bg); }
+
+  /* A game's private screen and questions sit over the controls. */
+  .overlay { position: absolute; inset: 0; z-index: 4; background: var(--bg); overflow: auto; padding: 14px 16px 18px; }
+  #screen h2 { font-size: 20px; margin-bottom: 6px; }
+  #screen p { color: var(--muted); white-space: pre-wrap; margin-bottom: 10px; }
+  #screen img.art { display: block; max-width: 100%; max-height: 40vh; margin: 0 auto 12px; border-radius: 14px; }
+  .choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
+  .choice { font: inherit; text-align: left; color: var(--bg); background: var(--mint); border: 3px solid transparent; border-radius: 16px; padding: 12px 14px; min-height: 64px; font-weight: 700; font-size: 17px; }
+  .choice small { display: block; font-weight: 500; font-size: 13px; opacity: 0.75; margin-top: 3px; }
+  .choice img { display: block; width: 100%; border-radius: 10px; margin-bottom: 6px; }
+  .choice.picked { border-color: var(--ink); box-shadow: 0 0 0 3px var(--bg), 0 0 0 6px var(--ink); }
+  #ask form { display: grid; gap: 10px; max-width: 560px; margin: 0 auto; }
+  #ask label { font-weight: 700; font-size: 18px; }
+  #ask input, #ask textarea { font: inherit; font-size: 18px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; width: 100%; user-select: text; -webkit-user-select: text; }
+  #ask textarea { min-height: 96px; resize: none; }
+  #ask button { font: inherit; font-weight: 700; font-size: 17px; color: var(--bg); background: var(--mint); border: none; border-radius: 12px; padding: 12px; }
+  #ask button.later { color: var(--muted); background: transparent; border: 1px solid var(--line); font-weight: 600; }
+  #toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 7; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 8px 16px; font-size: 14px; }
+
+  /* Drawing: the canvas and its color picker. */
+  .canvas { position: absolute; border-radius: 18px; background: #0b111a; border: 1px solid var(--line); touch-action: none; }
+  .palette { position: absolute; display: flex; flex-direction: column; gap: 10px; align-items: center; justify-content: center; }
+  .palette.row { flex-direction: row; }
+  .palette button { width: 44px; height: 44px; border-radius: 50%; border: 3px solid transparent; }
+  .palette button.on { border-color: var(--ink); }
+  .palette .clear { width: auto; height: 36px; padding: 0 12px; border-radius: 999px; font: inherit; font-size: 13px; font-weight: 600; color: var(--ink); background: var(--panel); border: 1px solid var(--line); }
+  #menu-list { display: grid; gap: 8px; max-height: 50vh; overflow: auto; }
+  #menu .item.small { padding: 9px 12px; font-size: 15px; }
+  .keep-awake { position: fixed; width: 1px; height: 1px; opacity: 0.01; pointer-events: none; left: 0; top: 0; }
+
   /* The rumble stand-in on phones that cannot vibrate. */
   body.rumble #controls { animation: rumble-glow 160ms ease-in-out infinite alternate; }
   @keyframes rumble-glow { from { box-shadow: inset 0 0 0 3px var(--amber); } to { box-shadow: inset 0 0 0 9px var(--amber); } }
@@ -132,6 +173,8 @@
   <span class="dot" id="dot"></span>
   <button class="pill" id="name" type="button" aria-label="Change your name"></button>
   <span id="status">Connecting…</span>
+  <span id="signal" aria-label="Connection"><i></i><i></i><i></i></span>
+  <span id="audience-badge" hidden>Audience</span>
   <button class="pill" id="menu-open" type="button" aria-label="Open the menu">Menu</button>
   <span id="player" hidden></span>
 </header>
@@ -139,14 +182,29 @@
   <span>For full screen, tap Share, then <b>Add to Home Screen</b>, and open Giga Couch from there.</span>
   <button id="tip-close" type="button" aria-label="Hide this tip">Hide</button>
 </div>
-<main id="controls"></main>
+<main id="controls"><div id="pad-controls"></div></main>
+<input id="photo-input" type="file" accept="image/*" capture="user" hidden>
+<div id="toast" hidden></div>
 <div id="menu" hidden role="dialog" aria-label="Menu">
   <div class="sheet">
     <h2>Giga Couch</h2>
+    <div id="menu-main">
     <button class="item shelf" id="menu-shelf" type="button">Back to the shelf<small>Ends this game for everyone</small></button>
+    <button class="item" id="menu-games" type="button">Start a game<small>Pick one from the shelf</small></button>
     <button class="item" id="menu-leave" type="button">Leave the game<small>Frees your player spot</small></button>
     <button class="item" id="menu-name" type="button">Change name</button>
+    <button class="item" id="menu-profile" type="button">Who's playing<small id="menu-profile-note">Link this phone to a name on the couch</small></button>
+    <button class="item" id="menu-photo" type="button">Take a photo<small id="menu-photo-note">Shows next to your name</small></button>
+    <button class="item" id="menu-audience" type="button">Watch as the audience<small>Vote along without taking a player spot</small></button>
+    <button class="item" id="menu-mirror" type="button">Left-handed controls<small id="menu-mirror-note">Off</small></button>
+    <button class="item" id="menu-awake" type="button">Keep the screen on<small id="menu-awake-note">On</small></button>
     <button class="item" id="menu-reload" type="button">Reload controller<small>Gets the newest controls from the computer</small></button>
+    </div>
+    <div id="menu-sub" hidden>
+      <h2 id="menu-sub-title"></h2>
+      <div id="menu-list"></div>
+      <button class="item close" id="menu-back" type="button">Back</button>
+    </div>
     <button class="item close" id="menu-close" type="button">Close</button>
   </div>
 </div>

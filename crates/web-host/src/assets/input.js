@@ -113,6 +113,32 @@
     window.requestAnimationFrame(post);
   }
 
+  // Rumble for pads, used by GigaCouch.phone.rumble through the bridge.
+  // pattern: on/off lengths in ms, starting with on.
+  window.__gigacouchRumblePad = function (padId, pattern) {
+    if (!nativePads) return false;
+    var pads = nativePads() || [];
+    for (var i = 0; i < pads.length; i += 1) {
+      var pad = pads[i];
+      if (!pad || (pad.id || String(pad.index)) !== padId || !pad.vibrationActuator) continue;
+      var at = 0;
+      pattern.forEach(function (length, step) {
+        if (step % 2 === 0) {
+          setTimeout(function () {
+            pad.vibrationActuator.playEffect("dual-rumble", {
+              duration: length,
+              strongMagnitude: 0.8,
+              weakMagnitude: 0.6,
+            }).catch(function () {});
+          }, at);
+        }
+        at += length;
+      });
+      return true;
+    }
+    return false;
+  };
+
   if (nativePads) {
     navigator.getGamepads = function () {
       return [];

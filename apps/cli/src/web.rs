@@ -35,6 +35,7 @@ pub async fn home(
     let sdk = root.join("sdk");
     let blob = root.join("runtimes/web/examples/blob-island/web");
     let gallery = root.join("runtimes/web/examples/controller-gallery/web");
+    let lab = root.join("runtimes/web/examples/phone-lab/web");
     let profiles = data_dir.join("home-profiles.json");
     let session = data_dir.join("home-session");
     let launch = match shell_mode {
@@ -68,6 +69,7 @@ pub async fn home(
         &[
             ("blob-island", blob.as_path()),
             ("controller-gallery", gallery.as_path()),
+            ("phone-lab", lab.as_path()),
         ],
         &profiles,
         Some(home_cards(&catalog)),
@@ -239,6 +241,15 @@ fn home_cards(catalog: &[Value]) -> Value {
             "runtime": "web-1",
             "playable": true,
             "color": "#9abef7"
+        }),
+        json!({
+            "id": "phone-lab",
+            "title": "Phone Lab",
+            "players": "Any number of phones, plus an audience",
+            "description": "Private hands, captions, drawing, audience votes, photos, and rumble: what phones can do beyond buttons.",
+            "runtime": "web-1",
+            "playable": true,
+            "color": "#f3c77d"
         }),
     ];
     for game in catalog {

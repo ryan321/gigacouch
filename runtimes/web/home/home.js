@@ -302,7 +302,7 @@
       var label = key === "space" ? "Space" : key === "delete" ? "Delete" : key === "done" ? "Done" : key;
       return '<button class="key' + (index === keyFocus ? " focus" : "") + '">' + label + "</button>";
     }).join("");
-    return "<h1>Spell the name</h1><p class=\"spelling\">" + (spelling || "…") + "</p><div class=\"keys\">" + board + "</div><p class=\"hint\">South adds a letter. East goes back.</p>";
+    return "<h1>Spell the name</h1><p class=\"spelling\">" + (spelling || "…") + "</p><div class=\"keys\">" + board + "</div><p class=\"hint\">South adds a letter. East goes back. Or type the name on any phone.</p>";
   }
 
   function shelfRows() {
@@ -364,7 +364,58 @@
     return '<section class="shelf"><p class="lede">' + who + '</p><div class="stage"><div class="stage-mark" style="--stage:' + game.color + '"></div><div><h1>' + game.title + "</h1><p>" + game.description + "</p><small>" + game.players + '</small><p class="play-line">' + line + '</p></div></div><div class="bands"><section><h2>On this Mac</h2>' + coverRow(rows[0], 0) + '</section><section><h2>Library</h2>' + coverRow(rows[1], 1) + "</section></div></section><p class=\"hint\">Stick moves. South confirms. East goes back to names.</p>";
   }
 
+  // Phones help Home: the name screen asks every phone to type the name,
+  // and a phone can pick a game to start from its menu.
+  var askedName = false;
+  var lastRemotePoll = 0;
+  function phoneHelp() {
+    var phone = window.GigaCouch && window.GigaCouch.phone;
+    if (!phone) return;
+    if (screen === "name" && !askedName) {
+      askedName = true;
+      phone.ask("all", { id: "home-name", prompt: "Type a name for the couch", placeholder: "Name", max: 24 }).catch(function () {});
+    } else if (screen !== "name" && askedName) {
+      askedName = false;
+      phone.ask("all", null).catch(function () {});
+    }
+    phone.events().forEach(function (event) {
+      if (event.type === "text" && event.ask === "home-name" && screen === "name") {
+        var typed = String(event.text || "").trim().slice(0, 24);
+        if (typed) {
+          post("/__gigacouch/v1/home/add", { name: typed }).then(function () {
+            screen = "shelf";
+            focus = 0;
+          });
+        }
+      }
+    });
+    if (performance.now() - lastRemotePoll > 700) {
+      lastRemotePoll = performance.now();
+      fetch("/__gigacouch/v1/home/remote", { cache: "no-store" })
+        .then(function (response) { return response.json(); })
+        .then(function (body) { if (body.open) startFromPhone(body.open); })
+        .catch(function () {});
+    }
+  }
+
+  // Starts a game a phone picked, the same way choosing it on the shelf does.
+  function startFromPhone(id) {
+    var rows = shelfRows();
+    for (var row = 0; row < rows.length; row += 1) {
+      var index = rows[row].findIndex(function (game) { return game.id === id; });
+      if (index !== -1) {
+        screen = "shelf";
+        shelfRow = row;
+        shelfIndex = index;
+        drawn = "";
+        activate();
+        return;
+      }
+    }
+  }
+
   function frame() {
+    phoneHelp();
     var menu = window.GigaCouch && window.GigaCouch.menu;
     if (screen === "account" && performance.now() - lastAccountPoll > 1000) {
       lastAccountPoll = performance.now();

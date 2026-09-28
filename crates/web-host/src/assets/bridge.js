@@ -9,6 +9,24 @@
   var ALIASES = { jump: "south", primary_action: "south", secondary_action: "east" };
   var glyphs = new Map();
   var menu = { move: { x: 0, y: 0 }, confirm: false, back: false };
+  // Phone events (choices, typed answers, drawing) waiting for the game.
+  var phoneEvents = [];
+  var RUMBLE_PRESETS = { tap: [15], bump: [40], hit: [90], long: [400], double: [40, 70, 40], heartbeat: [60, 120, 60, 400] };
+
+  function post(path, body) {
+    return fetch(path, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    }).then(function (response) {
+      return response.json().then(function (answer) {
+        if (!response.ok) {
+          throw new Error((answer && answer.error) || "the host refused that request");
+        }
+        return answer.phones;
+      });
+    });
+  }
 
   function remember(data) {
     var seen = new Set();
@@ -30,6 +48,9 @@
       held.set(player.id, player.buttons || {});
       glyphs.set(player.id, player.glyphs || {});
     });
+    if (data.phone_events && data.phone_events.length) {
+      phoneEvents = phoneEvents.concat(data.phone_events).slice(-2000);
+    }
     if (data.menu) {
       menu.move = data.menu.move || { x: 0, y: 0 };
       if (data.menu.confirm) {
@@ -88,8 +109,18 @@
     api: "1",
     players: {
       list: function () {
+        // kind: "pad", "phone", or "keyboard". avatar: a photo address,
+        // when the player took one. profile: the Home person a phone linked
+        // to. away: a phone that dropped and still holds its spot.
         return players.map(function (player) {
-          return { id: player.id, name: player.name };
+          return {
+            id: player.id,
+            name: player.name,
+            kind: player.kind,
+            avatar: player.avatar || null,
+            profile: player.profile || null,
+            away: !!player.away,
+          };
         });
       },
     },
@@ -191,6 +222,13 @@
       // "heartbeat"), a length in ms, or [on, off, on, ...] in ms. Android
       // phones vibrate; iPhones flash the pad's edges instead.
       rumble: function (player, pattern) {
+        // Pads rumble here in the page; phones through the host.
+        var steps = typeof pattern === "string" ? RUMBLE_PRESETS[pattern] : typeof pattern === "number" ? [pattern] : pattern;
+        if (steps && window.__gigacouchRumblePad) {
+          players.forEach(function (one) {
+            if (one.pad && (player === "all" || one.id === player)) window.__gigacouchRumblePad(one.pad, steps);
+          });
+        }
         return fetch("/__gigacouch/v1/phone/rumble", {
           method: "POST",
           headers: { "content-type": "application/json" },
@@ -203,6 +241,31 @@
             return body.phones;
           });
         });
+      },
+      // A private screen on one player's phone, every phone ("all"), or the
+      // audience ("audience"): { id, title, text, image, choices: [{ id,
+      // label, detail, color, image }] }. null takes it away. A tapped
+      // choice arrives through events().
+      show: function (player, screen) {
+        return post("/__gigacouch/v1/phone/screen", { player: player, screen: screen });
+      },
+      // A question typed on the phone: { id, prompt, placeholder, max,
+      // multiline }. The answer arrives through events(). null takes it away.
+      ask: function (player, question) {
+        return post("/__gigacouch/v1/phone/ask", { player: player, ask: question });
+      },
+      // New words on a player's buttons: { south: "Paris", ... }. null puts
+      // the layout's own labels back.
+      setLabels: function (player, labels) {
+        return post("/__gigacouch/v1/phone/labels", { player: player, labels: labels });
+      },
+      // Events from phones since the last call, oldest first: { type:
+      // "choice" | "text" | "stroke" | "clear", player, audience, name,
+      // phone, ... }.
+      events: function () {
+        var out = phoneEvents;
+        phoneEvents = [];
+        return out;
       },
       setLayout: function (layout) {
         return fetch("/__gigacouch/v1/phone/layout", {

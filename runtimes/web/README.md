@@ -44,6 +44,8 @@ pnpm launch                           # open the built app full screen
 pnpm launch:windowed                  # run it in a window, logs in this terminal
 ```
 
+Quit the app before building: the build replaces the whole app bundle, and a copy still running from it opens new pages blank. The build refuses to run while that copy is open.
+
 The pnpm scripts in the root `package.json` have no dependencies. `pnpm build` runs `python3 scripts/build_browser.py`.
 
 The build downloads nothing. It copies that Electron to `/Volumes/External/projects/gigacouch-browser/stage/Giga Couch.app`, renames it, and gives it the Giga Couch tile icon. It bundles the `couch` host, this `shell/`, Home, and Blob Island. It then signs the app ad hoc and writes `GigaCouch-<version>-mac-arm64.dmg` beside it. The Godot samples under `sdk/` are not bundled. Creator projects registered on the Mac still appear.
@@ -109,6 +111,43 @@ Each file must be inside `web/`, be MP3, M4A, or WAV, and stay under 256 KiB, wi
 
 Sound starts after the player's first tap, because browsers block audio until then; joining with A takes care of it. The pad asks iPhone to play through the silent switch, which has not been tried on a real iPhone yet.
 
+#### More from phones
+
+Games opt into these; a game that ignores them still gets plain pads.
+
+```javascript
+// A private screen on one phone, every phone, or the audience. A tapped
+// choice comes back through events().
+GigaCouch.phone.show(2, { id: "hand", title: "Your hand", text: "Only you can see these.",
+  choices: [{ id: "sun", label: "Sun", image: "sun" }] })
+GigaCouch.phone.show(2, null)                         // take it away
+
+// A question typed on the phone's own keyboard.
+GigaCouch.phone.ask("all", { id: "caption", prompt: "Caption this", max: 80 })
+
+// New words on a player's buttons.
+GigaCouch.phone.setLabels(2, { south: "Paris", east: "Rome", west: "Oslo", north: "Lima" })
+
+// Everything phones sent since the last call: choices, typed answers, and
+// drawing strokes, each with player, audience, name, and a phone token.
+for (const event of GigaCouch.phone.events()) { … }
+
+// Players: kind ("pad", "phone", "keyboard"), avatar, profile, away.
+GigaCouch.players.list()
+```
+
+- **Private screens.** Text, one of the game's images, and up to 12 choices. A choice can also start one of the phone's own actions with `action`: `"photo"` opens the camera, `"profile"` lists Home's people, and `"audience"` switches the phone to the audience. The pad does these from the player's tap; a game cannot start them any other way. Images come from `phone.images` in `gigacouch.json`: PNG, JPG, or WebP, at most 512 KiB each and 4 MiB together. The host checks every field and drops the rest; the pad draws from that data, and no game code runs on a phone.
+- **Typing.** Home uses it too: on "Spell the name", any phone can type the name.
+- **Drawing.** The built-in `draw` layout has a canvas and a color picker. Strokes arrive as events with points from 0 to 1 across the canvas.
+- **The game's own layouts.** `phone.layouts` in `gigacouch.json` names layouts built from stick, dpad, button, arrow, slider, touchpad, canvas, and palette controls, placed in fractions of the screen. `phone.layout` and `setLayout` accept them. The host keeps only the fields the pad draws.
+- **Audience.** A phone can choose Watch as the audience from its menu. It takes no player spot, gets screens sent to `"audience"` or `"all"`, and its choices arrive with `audience: true`.
+- **Rejoin.** A phone that drops keeps its player number for two minutes, marked `away`, and comes back into it without pressing A.
+- **Profiles and photos.** From the phone menu, Who's playing links the phone to a Home person, whose name it then plays under; the links are kept in `phone-profiles.json`. Take a photo sends a 256-pixel JPEG, kept in `phone-avatars/`; games get it as `avatar`.
+- **Starting games.** Start a game in the phone menu lists the games on this computer; Home starts the one picked.
+- **Signal and comfort.** The pad pings every two seconds and shows the round trip as bars; the host lists it as `rtt`. Left-handed controls mirror the layout. Keep the screen on plays a tiny silent clip on a loop, since the Wake Lock API is off on plain http; it has not been tried on real phones yet.
+
+`examples/phone-lab` shows all of it: the Phone Lab on the shelf has a station for each, and the phone's Next button moves everyone on.
+
 #### Phone rumble
 
 ```javascript
@@ -116,7 +155,7 @@ GigaCouch.phone.rumble(playerId, "hit")        // a preset
 GigaCouch.phone.rumble("all", [60, 40, 60])    // on, off, on, in milliseconds
 ```
 
-The presets are `tap`, `bump`, `hit`, `long`, `double`, and `heartbeat`. A pattern has 1 to 20 steps of 1 to 2000 ms, and 5 seconds at most in all. Android phones vibrate. iPhones have no vibration for web pages, so the pad flashes its edges for the same length instead. Each phone reports whether it can vibrate, and `/__gigacouch/v1/phones` lists it as `rumble` for each phone. Pads do not rumble yet.
+The presets are `tap`, `bump`, `hit`, `long`, `double`, and `heartbeat`. A pattern has 1 to 20 steps of 1 to 2000 ms, and 5 seconds at most in all. Android phones vibrate. iPhones have no vibration for web pages, so the pad flashes its edges for the same length instead. Each phone reports whether it can vibrate, and `/__gigacouch/v1/phones` lists it as `rumble` for each phone. Pads rumble through Chrome's gamepad vibration, where the pad supports it.
 
 The host pushes layout changes, sounds, and rumble to phones as they happen. Each phone's connection checks for queued messages every 10 ms, so a sound reaches the Wi-Fi within a few milliseconds instead of waiting for the phone's next message. The phone listener is its own small server for this reason: it keeps each phone's socket so the host can write to it at any time.
 

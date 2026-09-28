@@ -70,20 +70,8 @@
       "description": "Phone controllers while this game is open: the layout, and the game's own sounds. Without it, phones show stick-2 and only the stock sounds play.",
       "properties": {
         "layout": {
-          "enum": [
-            "stick-2",
-            "dpad-2",
-            "stick-4",
-            "twin-stick",
-            "one-button",
-            "quiz-4",
-            "racing",
-            "paddle",
-            "touchpad",
-            "lanes-4",
-            "two-choice"
-          ],
-          "description": "stick-2: stick, A, B. dpad-2: d-pad, A, B, Start. stick-4: stick, A, B, X, Y, Start. twin-stick: move and aim sticks, A, Start. one-button: one large A. quiz-4: four large A, B, X, Y buttons. racing: steering arrows, Gas (A), Brake (B), Start. paddle: a slider that stays put, A. touchpad: finger position on the look axis, A, B. lanes-4: four tall X, A, B, Y lanes. two-choice: two large A and B buttons."
+          "description": "A built-in layout (stick-2, dpad-2, stick-4, twin-stick, one-button, quiz-4, racing, paddle, touchpad, lanes-4, two-choice, draw) or one of this game's phone.layouts.",
+          "type": "string"
         },
         "sounds": {
           "type": "object",
@@ -107,6 +95,216 @@
           "additionalProperties": {
             "type": "string",
             "pattern": "^[^/.\\\\][^\\\\]*\\.(mp3|m4a|wav|MP3|M4A|WAV)$"
+          }
+        },
+        "images": {
+          "type": "object",
+          "maxProperties": 64,
+          "description": "The game's own images for private phone screens: a name to a file inside web/. PNG, JPG, or WebP (no SVG); at most 512 KiB each and 4 MiB together.",
+          "propertyNames": {
+            "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[^/.\\\\][^\\\\]*\\.(png|jpg|jpeg|webp|PNG|JPG|JPEG|WEBP)$"
+          }
+        },
+        "layouts": {
+          "type": "object",
+          "maxProperties": 16,
+          "description": "The game's own controller layouts, by name. Positions are fractions of the phone's control area. The host keeps only these fields; the pad draws from them.",
+          "propertyNames": {
+            "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+          },
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "landscape"
+            ],
+            "properties": {
+              "landscape": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 16,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "type"
+                  ],
+                  "properties": {
+                    "type": {
+                      "enum": [
+                        "stick",
+                        "dpad",
+                        "button",
+                        "arrow",
+                        "slider",
+                        "touchpad",
+                        "canvas",
+                        "palette"
+                      ]
+                    },
+                    "key": {
+                      "enum": [
+                        "south",
+                        "east",
+                        "west",
+                        "north",
+                        "start"
+                      ]
+                    },
+                    "label": {
+                      "type": "string",
+                      "maxLength": 16
+                    },
+                    "hint": {
+                      "type": "string",
+                      "maxLength": 60
+                    },
+                    "color": {
+                      "enum": [
+                        "mint",
+                        "blue",
+                        "amber",
+                        "coral",
+                        "panel"
+                      ]
+                    },
+                    "axis": {
+                      "enum": [
+                        "move",
+                        "look"
+                      ]
+                    },
+                    "dir": {
+                      "enum": [
+                        -1,
+                        1
+                      ]
+                    },
+                    "small": {
+                      "type": "boolean"
+                    },
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "size": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "rect": {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "minItems": 4,
+                      "maxItems": 4
+                    }
+                  }
+                }
+              },
+              "portrait": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 16,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "type"
+                  ],
+                  "properties": {
+                    "type": {
+                      "enum": [
+                        "stick",
+                        "dpad",
+                        "button",
+                        "arrow",
+                        "slider",
+                        "touchpad",
+                        "canvas",
+                        "palette"
+                      ]
+                    },
+                    "key": {
+                      "enum": [
+                        "south",
+                        "east",
+                        "west",
+                        "north",
+                        "start"
+                      ]
+                    },
+                    "label": {
+                      "type": "string",
+                      "maxLength": 16
+                    },
+                    "hint": {
+                      "type": "string",
+                      "maxLength": 60
+                    },
+                    "color": {
+                      "enum": [
+                        "mint",
+                        "blue",
+                        "amber",
+                        "coral",
+                        "panel"
+                      ]
+                    },
+                    "axis": {
+                      "enum": [
+                        "move",
+                        "look"
+                      ]
+                    },
+                    "dir": {
+                      "enum": [
+                        -1,
+                        1
+                      ]
+                    },
+                    "small": {
+                      "type": "boolean"
+                    },
+                    "x": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "y": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "size": {
+                      "type": "number",
+                      "minimum": 0,
+                      "maximum": 1
+                    },
+                    "rect": {
+                      "type": "array",
+                      "items": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1
+                      },
+                      "minItems": 4,
+                      "maxItems": 4
+                    }
+                  }
+                }
+              }
+            }
           }
         }
       }

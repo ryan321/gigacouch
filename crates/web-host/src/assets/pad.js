@@ -130,6 +130,16 @@
         { type: "button", key: "east", label: "B", color: "coral", rect: [0.04, 0.51, 0.92, 0.47] },
       ],
     },
+    "draw": {
+      landscape: [
+        { type: "canvas", rect: [0.01, 0.03, 0.84, 0.94] },
+        { type: "palette", rect: [0.87, 0.03, 0.12, 0.94] },
+      ],
+      portrait: [
+        { type: "canvas", rect: [0.02, 0.01, 0.96, 0.84] },
+        { type: "palette", rect: [0.02, 0.87, 0.96, 0.12] },
+      ],
+    },
   };
   var DEFAULT_LAYOUT = "stick-2";
   // The host fills this in. When the host's pad is newer (it was updated and
@@ -316,7 +326,7 @@
   // until it has been sent once.
   function send() {
     if (!open) return;
-    var message = { name: name, x: round(pad.x), y: round(pad.y), lx: round(pad.lx), ly: round(pad.ly), digital: pad.digital, absolute: pad.absolute, rumble: canVibrate };
+    var message = { name: name, x: round(pad.x), y: round(pad.y), lx: round(pad.lx), ly: round(pad.ly), digital: pad.digital, absolute: pad.absolute, rumble: canVibrate, audience: audience, rtt: Math.round(rtt) };
     BUTTONS.forEach(function (key) {
       message[key] = !!(pad[key] || latch[key]);
     });
@@ -330,7 +340,13 @@
   function showPlayer() {
     $("menu-leave").hidden = !player;
     $("menu-shelf").hidden = !inGame;
-    if (player) {
+    $("menu-games").hidden = inGame;
+    $("audience-badge").hidden = !audience;
+    $("menu-audience").firstChild.textContent = audience ? "Play as a player" : "Watch as the audience";
+    if (audience) {
+      $("player").hidden = true;
+      status(open ? "Watching" : "Connecting…", open);
+    } else if (player) {
       $("player").hidden = false;
       $("player").textContent = "Player " + player;
       status("You're in", true);
@@ -367,6 +383,19 @@
           rumble(reply.rumble);
           return;
         }
+        if (reply.pong !== undefined) { heard(reply.pong); return; }
+        if (reply.notice) toast(reply.notice);
+        if (reply.profiles) showList("Who's playing", reply.profiles, pickProfile, "Not linked");
+        if (reply.shelf) showList("Start a game", reply.shelf, openGame);
+        if ("profile" in reply) showProfile(reply.profile);
+        if ("photo" in reply) $("menu-photo-note").textContent = reply.photo ? "Your photo is on the TV. Tap to retake." : "Shows next to your name";
+        if (reply.images) preloadImages(reply.images);
+        if ("labels" in reply) { labels = reply.labels || {}; drawnAs = ""; draw(); }
+        if ("screen" in reply) { gameScreen = reply.screen; picked = null; renderScreen(); }
+        // The same question again (a reconnect) keeps what is being typed.
+        if ("ask" in reply && JSON.stringify(reply.ask) !== JSON.stringify(question)) { question = reply.ask; renderAsk(); }
+        // A game's own layout comes with its drawing data.
+        if (reply.layout && reply.layout_spec) LAYOUTS[reply.layout] = reply.layout_spec;
         if ("player" in reply) player = reply.player || null;
         if ("game" in reply) inGame = reply.game === true;
         if (reply.layout && LAYOUTS[reply.layout] && reply.layout !== layoutName) {
@@ -410,7 +439,7 @@
     el.type = "button";
     el.className = "face" + (spec.rect ? " rect" : "") + (spec.small ? " small" : "");
     el.innerHTML = "";
-    el.append(spec.label);
+    el.append((spec.key && labels[spec.key]) || spec.label);
     if (spec.hint) {
       var small = document.createElement("small");
       small.textContent = spec.hint;
@@ -431,6 +460,8 @@
       el.style.fontSize = size * 0.34 + "px";
     }
     if (spec.color) el.style.background = "var(--" + spec.color + ")";
+    // A dark "panel" button, such as Next, takes light words.
+    if (spec.color === "panel") el.classList.add("dark");
     el.setAttribute("aria-label", spec.label);
     var holding = null;
     el.addEventListener("pointerdown", function (event) {
@@ -440,6 +471,10 @@
       capture(el, event);
       pad[spec.key] = true;
       latch[spec.key] = true;
+      // Only players' buttons reach a game; say so instead of doing nothing.
+      if (!player && !audience && spec.key !== "south" && BUTTONS.indexOf(spec.key) !== -1) {
+        toast("Press A to join first");
+      }
       el.classList.add("down");
       buzz();
       send();
@@ -599,9 +634,16 @@
     drawnAs = "";
     draw();
   });
-  function goFullScreen() {
+  function goFullScreen(event) {
+    // Only from the controls. Asking for full screen uses up the tap, and a
+    // menu item or a game's choice may need it, for example to open the
+    // camera for a photo.
+    if (!event || !event.target || !event.target.closest || !event.target.closest("#pad-controls")) return;
     var root = document.documentElement;
     if (standalone || apple || document.fullscreenElement || !root.requestFullscreen) return;
+    // Never while typing: going full screen can close the phone's keyboard.
+    var focused = document.activeElement;
+    if (question || (focused && /^(INPUT|TEXTAREA)$/.test(focused.tagName))) return;
     root.requestFullscreen({ navigationUI: "hide" }).then(function () {
       var layout = LAYOUTS[layoutName] || LAYOUTS[DEFAULT_LAYOUT];
       if (!layout.portrait && screen.orientation && screen.orientation.lock) {
@@ -716,12 +758,13 @@
     var layout = LAYOUTS[layoutName] || LAYOUTS[DEFAULT_LAYOUT];
     var portrait = window.innerHeight > window.innerWidth;
     var controls = portrait ? layout.portrait : layout.landscape;
-    var key = layoutName + (portrait ? ":portrait" : ":landscape") + ":" + window.innerWidth + "x" + window.innerHeight;
+    if (controls && mirrored) controls = controls.map(mirror);
+    var key = layoutName + (portrait ? ":portrait" : ":landscape") + ":" + window.innerWidth + "x" + window.innerHeight + (mirrored ? ":mirror" : "");
     if (key === drawnAs) return;
     drawnAs = key;
     releaseAll();
     dirty = true;
-    var area = $("controls");
+    var area = $("pad-controls");
     area.innerHTML = "";
     $("turn").hidden = !!controls;
     if (!controls) return;
@@ -735,13 +778,385 @@
       else if (spec.type === "arrow") area.append(makeArrow(spec, box));
       else if (spec.type === "slider") area.append(makeSlider(spec, box));
       else if (spec.type === "touchpad") area.append(makeTouchpad(spec, box));
+      else if (spec.type === "canvas") area.append(makeCanvas(spec, box));
+      else if (spec.type === "palette") area.append(makePalette(spec, box, portrait));
       else area.append(makeButton(spec, box));
     });
   }
 
+  // ---- Features a game can opt into ----------------------------------------
+
+  var labels = {};
+  var gameScreen = null;
+  var picked = null;
+  var question = null;
+  var audience = stored("gigacouch.phone.audience", "") === "1";
+  var mirrored = stored("gigacouch.phone.mirror", "") === "1";
+  var keepAwake = stored("gigacouch.phone.awake", "1") === "1";
+  var rtt = 0;
+  var penColor = "mint";
+  var strokeNumber = 0;
+  var COLORS = { mint: "#8ce8be", blue: "#9abef7", amber: "#f3c77d", coral: "#ec9a7a", panel: "#f2f5f8" };
+
+  // A discrete message: an event for the game, a ping, a request.
+  function sendKind(message) {
+    if (!open) return;
+    try { socket.send(JSON.stringify(message)); } catch (e) { /* reconnect handles it */ }
+  }
+  function sendEvent(event) { sendKind({ kind: "event", event: event }); }
+
+  var toastTimer = null;
+  function toast(text) {
+    $("toast").textContent = text;
+    $("toast").hidden = false;
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(function () { $("toast").hidden = true; }, 3000);
+  }
+
+  // Left-handed: controls swap sides; steering arrows keep their direction.
+  function mirror(spec) {
+    var copy = {};
+    Object.keys(spec).forEach(function (key) { copy[key] = spec[key]; });
+    if (copy.rect) copy.rect = [1 - copy.rect[0] - copy.rect[2], copy.rect[1], copy.rect[2], copy.rect[3]];
+    if (typeof copy.x === "number") copy.x = 1 - copy.x;
+    if (copy.type === "arrow") {
+      copy.dir = -copy.dir;
+      copy.label = copy.dir < 0 ? "◀" : "▶";
+    }
+    return copy;
+  }
+
+  // The game's private screen: text, an image, and choices to tap.
+  function renderScreen() {
+    var old = $("screen");
+    if (old) old.remove();
+    if (!gameScreen) return;
+    var box = document.createElement("section");
+    box.id = "screen";
+    box.className = "overlay";
+    if (gameScreen.title) { var h = document.createElement("h2"); h.textContent = gameScreen.title; box.append(h); }
+    if (gameScreen.image) { var img = document.createElement("img"); img.className = "art"; img.src = gameScreen.image; img.alt = ""; box.append(img); }
+    if (gameScreen.text) { var p = document.createElement("p"); p.textContent = gameScreen.text; box.append(p); }
+    if (gameScreen.choices && gameScreen.choices.length) {
+      var grid = document.createElement("div");
+      grid.className = "choices";
+      gameScreen.choices.forEach(function (choice) {
+        var button = document.createElement("button");
+        button.type = "button";
+        button.className = "choice" + (picked === choice.id ? " picked" : "");
+        if (choice.color) button.style.background = COLORS[choice.color] || "";
+        if (choice.image) { var art = document.createElement("img"); art.src = choice.image; art.alt = ""; button.append(art); }
+        button.append(choice.label);
+        if (choice.detail) { var small = document.createElement("small"); small.textContent = choice.detail; button.append(small); }
+        button.addEventListener("click", function () {
+          picked = choice.id;
+          sendEvent({ type: "choice", choice: choice.id, screen: gameScreen.id });
+          buzz();
+          // A phone action runs from this tap, which the camera needs.
+          if (choice.action === "photo") $("photo-input").click();
+          else if (choice.action === "profile") sendKind({ kind: "request", what: "profiles" });
+          else if (choice.action === "audience") toggleAudience();
+          renderScreen();
+        });
+        grid.append(button);
+      });
+      box.append(grid);
+    }
+    $("controls").append(box);
+  }
+
+  // A question from the game, answered with the phone's own keyboard.
+  function renderAsk() {
+    var old = $("ask");
+    if (old) old.remove();
+    if (!question) return;
+    var box = document.createElement("section");
+    box.id = "ask";
+    box.className = "overlay";
+    var form = document.createElement("form");
+    var label = document.createElement("label");
+    label.textContent = question.prompt;
+    label.htmlFor = "ask-input";
+    var input = document.createElement(question.multiline ? "textarea" : "input");
+    input.id = "ask-input";
+    input.maxLength = question.max || 80;
+    input.placeholder = question.placeholder || "";
+    input.autocomplete = "off";
+    var button = document.createElement("button");
+    button.type = "submit";
+    button.textContent = "Send";
+    // A question never traps the player: Not now closes it, and the
+    // controls underneath (Next included) are back.
+    var later = document.createElement("button");
+    later.type = "button";
+    later.className = "later";
+    later.textContent = "Not now";
+    later.addEventListener("click", function () {
+      input.blur();
+      question = null;
+      renderAsk();
+    });
+    form.append(label, input, button, later);
+    form.addEventListener("submit", function (event) {
+      event.preventDefault();
+      var text = input.value.trim();
+      if (!text) return;
+      sendEvent({ type: "text", text: text });
+      input.blur();
+      question = null;
+      renderAsk();
+      toast("Sent");
+    });
+    box.append(form);
+    $("controls").append(box);
+    setTimeout(function () { try { input.focus(); } catch (e) {} }, 50);
+  }
+
+  function preloadImages(map) {
+    Object.keys(map || {}).forEach(function (key) { var img = new Image(); img.src = map[key]; });
+  }
+
+  // Drawing: strokes go to the game as batches of points, 0 to 1 across the
+  // canvas, with the pen color. The phone draws them too, straight away.
+  function makeCanvas(spec, box) {
+    var canvas = document.createElement("canvas");
+    canvas.className = "canvas";
+    placeRect(canvas, spec.rect, box);
+    var width = spec.rect[2] * box.width;
+    var height = spec.rect[3] * box.height;
+    var scale = window.devicePixelRatio || 1;
+    canvas.width = Math.round(width * scale);
+    canvas.height = Math.round(height * scale);
+    var ink = canvas.getContext("2d");
+    ink.scale(scale, scale);
+    ink.lineCap = "round";
+    ink.lineJoin = "round";
+    ink.lineWidth = 6;
+    var touch = null;
+    var last = null;
+    var batch = [];
+    var flushTimer = null;
+    function flush(end) {
+      if (!batch.length && !end) return;
+      sendEvent({ type: "stroke", stroke: strokeNumber, points: batch.splice(0, 128), color: penColor, end: !!end });
+    }
+    function point(event) {
+      var rect = canvas.getBoundingClientRect();
+      return [Math.max(0, Math.min(1, (event.clientX - rect.left) / rect.width)), Math.max(0, Math.min(1, (event.clientY - rect.top) / rect.height))];
+    }
+    canvas.addEventListener("pointerdown", function (event) {
+      if (touch !== null) return;
+      event.preventDefault();
+      touch = event.pointerId;
+      capture(canvas, event);
+      strokeNumber += 1;
+      last = point(event);
+      batch = [last];
+      ink.strokeStyle = COLORS[penColor];
+      flushTimer = setInterval(function () { flush(false); }, 50);
+    });
+    canvas.addEventListener("pointermove", function (event) {
+      if (event.pointerId !== touch) return;
+      var next = point(event);
+      ink.beginPath();
+      ink.moveTo(last[0] * width, last[1] * height);
+      ink.lineTo(next[0] * width, next[1] * height);
+      ink.stroke();
+      last = next;
+      batch.push(next);
+      if (batch.length >= 128) flush(false);
+    });
+    function letGo(event) {
+      if (event.pointerId !== touch) return;
+      touch = null;
+      clearInterval(flushTimer);
+      flush(true);
+    }
+    canvas.addEventListener("pointerup", letGo);
+    canvas.addEventListener("pointercancel", letGo);
+    canvas.clearInk = function () { ink.clearRect(0, 0, width, height); };
+    return canvas;
+  }
+
+  function makePalette(spec, box, portrait) {
+    var bar = document.createElement("div");
+    bar.className = "palette" + (portrait ? " row" : "");
+    placeRect(bar, spec.rect, box);
+    ["mint", "blue", "amber", "coral"].forEach(function (color) {
+      var swatch = document.createElement("button");
+      swatch.type = "button";
+      swatch.style.background = COLORS[color];
+      swatch.setAttribute("aria-label", color + " pen");
+      if (color === penColor) swatch.className = "on";
+      swatch.addEventListener("click", function () {
+        penColor = color;
+        bar.querySelectorAll("button").forEach(function (other) { other.classList.remove("on"); });
+        swatch.className = "on";
+      });
+      bar.append(swatch);
+    });
+    var clear = document.createElement("button");
+    clear.type = "button";
+    clear.className = "clear";
+    clear.textContent = "Clear";
+    clear.addEventListener("click", function () {
+      var canvas = $("controls").querySelector(".canvas");
+      if (canvas && canvas.clearInk) canvas.clearInk();
+      sendEvent({ type: "clear" });
+    });
+    bar.append(clear);
+    return bar;
+  }
+
+  // Connection quality: a ping every two seconds; the round trip shows as
+  // bars and goes to the host so the TV can show it too.
+  var pingAt = {};
+  function ping() {
+    var t = Math.round(performance.now());
+    pingAt[t] = true;
+    sendKind({ kind: "ping", t: t });
+  }
+  function heard(t) {
+    if (!pingAt[t]) return;
+    delete pingAt[t];
+    var sample = performance.now() - t;
+    rtt = rtt ? rtt * 0.7 + sample * 0.3 : sample;
+    $("signal").className = rtt < 60 ? "good" : rtt < 150 ? "fair" : "poor";
+    $("signal").title = Math.round(rtt) + " ms";
+  }
+  setInterval(ping, 2000);
+
+  // Keep the screen on: a tiny silent clip on a loop, started by a tap.
+  // The Wake Lock API is off on plain http, so this is the stand-in.
+  var awakeVideo = null;
+  function startAwake() {
+    if (!keepAwake) return;
+    if (!awakeVideo) {
+      awakeVideo = document.createElement("video");
+      awakeVideo.className = "keep-awake";
+      awakeVideo.setAttribute("playsinline", "");
+      awakeVideo.loop = true;
+      awakeVideo.src = "/p/" + code + "/awake.mp4";
+      document.body.append(awakeVideo);
+    }
+    if (awakeVideo.paused) awakeVideo.play().catch(function () {});
+  }
+  function stopAwake() { if (awakeVideo) awakeVideo.pause(); }
+  document.addEventListener("pointerup", startAwake, { capture: true });
+  document.addEventListener("touchend", startAwake, { capture: true });
+
+  // A list in the menu: Home's people, or the games on the shelf.
+  function showList(title, items, pick, none) {
+    $("menu-sub-title").textContent = title;
+    var list = $("menu-list");
+    list.innerHTML = "";
+    items.forEach(function (item) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "item small";
+      button.textContent = item.name || item.title;
+      button.addEventListener("click", function () { pick(item.id); });
+      list.append(button);
+    });
+    if (none) {
+      var off = document.createElement("button");
+      off.type = "button";
+      off.className = "item small";
+      off.textContent = none;
+      off.addEventListener("click", function () { pick(null); });
+      list.append(off);
+    }
+    if (!items.length && !none) list.textContent = "Nothing to show yet.";
+    $("menu-main").hidden = true;
+    $("menu-sub").hidden = false;
+    $("menu").hidden = false;
+  }
+  function pickProfile(profile) { sendKind({ kind: "profile", id: profile }); closeMenu(); }
+  function openGame(game) { sendKind({ kind: "open", id: game }); closeMenu(); }
+  function showProfile(profile) {
+    $("menu-profile-note").textContent = profile ? "This phone is " + profile.name : "Link this phone to a name on the couch";
+    if (profile) {
+      name = profile.name;
+      $("name").textContent = name;
+      dirty = true;
+    }
+  }
+
+  // A photo for the TV: the camera or a picture, cut to a square here and
+  // sent as a small JPEG.
+  $("photo-input").addEventListener("change", function () {
+    var file = $("photo-input").files && $("photo-input").files[0];
+    if (!file) return;
+    toast("Saving photo…");
+    var reader = new FileReader();
+    reader.onload = function () {
+      var img = new Image();
+      img.onload = function () {
+        var side = Math.min(img.width, img.height);
+        var canvas = document.createElement("canvas");
+        canvas.width = 256;
+        canvas.height = 256;
+        canvas.getContext("2d").drawImage(img, (img.width - side) / 2, (img.height - side) / 2, side, side, 0, 0, 256, 256);
+        canvas.toBlob(function (blob) {
+          if (!blob) return;
+          fetch("/p/" + code + "/avatar?id=" + id, { method: "POST", headers: { "content-type": "image/jpeg" }, body: blob })
+            .then(function (response) {
+              toast(response.ok ? "Photo saved" : "That photo didn't save");
+              if (response.ok) $("menu-photo-note").textContent = "Your photo is on the TV. Tap to retake.";
+            })
+            .catch(function () { toast("That photo didn't save"); });
+        }, "image/jpeg", 0.85);
+      };
+      img.src = reader.result;
+    };
+    reader.readAsDataURL(file);
+    $("photo-input").value = "";
+  });
+
+  function showToggles() {
+    $("menu-mirror-note").textContent = mirrored ? "On: the stick is on the right" : "Off";
+    $("menu-awake-note").textContent = keepAwake ? "On" : "Off: the phone may dim and lock";
+  }
+  showToggles();
+
   // The platform menu, on every layout: back to the shelf, leave, rename.
   // Opening it releases every control so nothing stays held in the game.
-  function closeMenu() { $("menu").hidden = true; }
+  function closeMenu() {
+    $("menu").hidden = true;
+    $("menu-main").hidden = false;
+    $("menu-sub").hidden = true;
+  }
+  $("menu-back").addEventListener("click", function () {
+    $("menu-main").hidden = false;
+    $("menu-sub").hidden = true;
+  });
+  $("menu-games").addEventListener("click", function () { sendKind({ kind: "request", what: "shelf" }); });
+  $("menu-profile").addEventListener("click", function () { sendKind({ kind: "request", what: "profiles" }); });
+  $("menu-photo").addEventListener("click", function () { closeMenu(); $("photo-input").click(); });
+  function toggleAudience() {
+    audience = !audience;
+    store("gigacouch.phone.audience", audience ? "1" : "");
+    dirty = true;
+    send();
+    showPlayer();
+  }
+  $("menu-audience").addEventListener("click", function () {
+    toggleAudience();
+    closeMenu();
+  });
+  $("menu-mirror").addEventListener("click", function () {
+    mirrored = !mirrored;
+    store("gigacouch.phone.mirror", mirrored ? "1" : "");
+    showToggles();
+    drawnAs = "";
+    draw();
+  });
+  $("menu-awake").addEventListener("click", function () {
+    keepAwake = !keepAwake;
+    store("gigacouch.phone.awake", keepAwake ? "1" : "");
+    if (keepAwake) startAwake(); else stopAwake();
+    showToggles();
+  });
   $("menu-open").addEventListener("click", function () {
     releaseAll();
     drawnAs = "";

@@ -11,6 +11,9 @@
 //! jumps, and holding east leaves.
 
 use crate::State;
+mod extras;
+pub(crate) use extras::{MAX_AVATAR_BYTES, Target, parse_target};
+
 use crate::package::{
     DEFAULT_PHONE_LAYOUT, GameSound, MAX_SOUND_BYTES, PHONE_LAYOUTS, STOCK_SOUNDS,
 };
@@ -42,11 +45,15 @@ pub const PREFERRED_PORT: u16 = 8790;
 const QUIET: Duration = Duration::from_millis(1500);
 /// After this long the phone is dropped and its player slot is freed.
 const GONE: Duration = Duration::from_secs(8);
-const MAX_MESSAGE: usize = 1024;
+/// A phone message: pad state, or an event such as a batch of drawing points.
+const MAX_MESSAGE: usize = 8 * 1024;
 const CODE_LETTERS: &[u8] = b"ACDEFHJKMNPRTWXY3479";
-const PAD_HTML: &str = include_str!("assets/pad.html");
-const PAD_JS: &str = include_str!("assets/pad.js");
-const PHONE_ICON: &[u8] = include_bytes!("assets/phone-icon.png");
+const PAD_HTML: &str = include_str!("../assets/pad.html");
+const PAD_JS: &str = include_str!("../assets/pad.js");
+const PHONE_ICON: &[u8] = include_bytes!("../assets/phone-icon.png");
+/// A two-second black clip with a silent track. Playing it on a loop keeps a
+/// phone's screen awake over plain http, where the Wake Lock API is off.
+const AWAKE_MP4: &[u8] = include_bytes!("../assets/awake.mp4");
 
 /// A fingerprint of the pad page this host serves. A phone still running an
 /// older pad (the host restarted after an update, and the phone reconnected
@@ -135,6 +142,9 @@ pub(crate) struct PhoneHub {
     /// The open game's own phone sounds, each with the file name phones
     /// fetch it by: a fingerprint of its bytes, so phones can cache it.
     sounds: Mutex<Vec<(GameSound, String)>>,
+    /// Screens, questions, labels, events, profiles, photos, and the open
+    /// game's own images and layouts. See `extras.rs`.
+    extras: extras::Extras,
 }
 
 struct Phone {
@@ -181,6 +191,12 @@ struct PhoneState {
     /// Whether this phone can vibrate. Android phones can; iPhones cannot.
     #[serde(default)]
     rumble: bool,
+    /// Watching as the audience: gets screens and votes, takes no slot.
+    #[serde(default)]
+    audience: bool,
+    /// The phone's own measure of its round trip to the host, in ms.
+    #[serde(default)]
+    rtt: u32,
 }
 
 impl PhoneHub {
@@ -212,6 +228,11 @@ impl PhoneHub {
             links: Mutex::new(HashMap::new()),
             next_link: AtomicU64::new(1),
             sounds: Mutex::new(Vec::new()),
+            extras: extras::Extras::load(
+                code_file
+                    .and_then(std::path::Path::parent)
+                    .map(std::path::Path::to_path_buf),
+            ),
         };
         Some((Arc::new(hub), server))
     }
@@ -233,20 +254,23 @@ impl PhoneHub {
         self.in_game.store(layout.is_some(), Ordering::SeqCst);
         if layout.is_none() {
             // Already on the shelf: a late request has nothing left to do,
-            // and no game's sounds apply.
+            // and no game's sounds, images, screens, or layouts apply.
             self.shelf_request.store(false, Ordering::SeqCst);
             self.set_sounds(&[]);
+            self.clear_game_extras();
         }
         let layout = layout
-            .filter(|name| PHONE_LAYOUTS.contains(name))
+            .filter(|name| self.known_layout(name))
             .unwrap_or(DEFAULT_PHONE_LAYOUT);
         *self.layout.lock().expect("layout") = layout.to_string();
         self.push_layout();
     }
 
     fn push_layout(&self) {
+        let layout = self.layout();
         self.push_all(&json!({
-            "layout": self.layout(),
+            "layout_spec": self.layout_spec(&layout),
+            "layout": layout,
             "game": self.in_game.load(Ordering::SeqCst),
         }));
     }
@@ -288,7 +312,7 @@ impl PhoneHub {
     pub(crate) fn play(
         &self,
         state: &State,
-        player: Option<u16>,
+        target: Target,
         name: &str,
     ) -> Result<usize, &'static str> {
         let known = STOCK_SOUNDS.contains(&name)
@@ -301,34 +325,17 @@ impl PhoneHub {
         if !known {
             return Err("not a stock sound or one of this game's phone sounds");
         }
-        Ok(self.push_to(&self.targets(state, player), &json!({ "sound": name })))
+        Ok(self.push_to(&self.targets_for(state, target), &json!({ "sound": name })))
     }
 
     /// Vibrates the phones of one player, or every phone. Phones that cannot
     /// vibrate (iPhones) flash their edges instead. Returns how many phones
     /// were told.
-    pub(crate) fn rumble(&self, state: &State, player: Option<u16>, pattern: &[u32]) -> usize {
-        self.push_to(&self.targets(state, player), &json!({ "rumble": pattern }))
-    }
-
-    /// The phones of one player, or every phone.
-    fn targets(&self, state: &State, player: Option<u16>) -> Vec<String> {
-        let ids: Vec<String> = self
-            .phones
-            .lock()
-            .expect("phones")
-            .keys()
-            .cloned()
-            .collect();
-        match player {
-            None => ids,
-            Some(number) => {
-                let session = state.session.lock().expect("session");
-                ids.into_iter()
-                    .filter(|id| session.player_of(&device_id(id)) == Some(number))
-                    .collect()
-            }
-        }
+    pub(crate) fn rumble(&self, state: &State, target: Target, pattern: &[u32]) -> usize {
+        self.push_to(
+            &self.targets_for(state, target),
+            &json!({ "rumble": pattern }),
+        )
     }
 
     fn push_to(&self, ids: &[String], message: &Value) -> usize {
@@ -351,7 +358,7 @@ impl PhoneHub {
     /// open: the shelf always shows the default. Returns false for an
     /// unknown layout or when no game is open.
     pub(crate) fn game_sets_layout(&self, layout: &str) -> bool {
-        if !PHONE_LAYOUTS.contains(&layout) || !self.in_game.load(Ordering::SeqCst) {
+        if !self.known_layout(layout) || !self.in_game.load(Ordering::SeqCst) {
             return false;
         }
         *self.layout.lock().expect("layout") = layout.to_string();
@@ -370,7 +377,11 @@ impl PhoneHub {
             .collect();
         json!({
             "layout": self.layout(),
-            "layouts": PHONE_LAYOUTS,
+            "layouts": PHONE_LAYOUTS
+                .iter()
+                .map(|name| (*name).to_string())
+                .chain(self.extras_layout_names())
+                .collect::<Vec<_>>(),
             "game": self.in_game.load(Ordering::SeqCst),
             "stock_sounds": STOCK_SOUNDS,
             "rumble_presets": RUMBLE_PRESETS.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
@@ -392,7 +403,11 @@ impl PhoneHub {
         let now = Instant::now();
         let mut phones = self.phones.lock().expect("phones");
         phones.retain(|_, phone| now.saturating_duration_since(phone.seen) < GONE);
-        let mut list: Vec<(&String, &Phone)> = phones.iter().collect();
+        // Audience phones watch and vote; they never take a player slot.
+        let mut list: Vec<(&String, &Phone)> = phones
+            .iter()
+            .filter(|(_, phone)| !phone.state.audience)
+            .collect();
         list.sort_by_key(|(_, phone)| phone.joined);
         list.into_iter()
             .map(|(id, phone)| {
@@ -425,6 +440,8 @@ impl PhoneHub {
                         y: pad.ly,
                     },
                     absolute: pad.absolute,
+                    avatar: self.avatar_url(id),
+                    profile: self.profile_of(id).map(|(person, _)| person),
                 }
             })
             .collect()
@@ -434,33 +451,38 @@ impl PhoneHub {
     pub(crate) fn status(&self, state: &State) -> Value {
         let url = self.join_url();
         let now = Instant::now();
-        let mut rows: Vec<(String, String, bool, Instant, bool)> = {
+        let mut rows: Vec<(String, PhoneState, bool, Instant)> = {
             let phones = self.phones.lock().expect("phones");
             phones
                 .iter()
                 .filter(|(_, phone)| now.saturating_duration_since(phone.seen) < GONE)
                 .map(|(id, phone)| {
                     let quiet = now.saturating_duration_since(phone.seen) >= QUIET;
-                    (
-                        id.clone(),
-                        phone.state.name.clone(),
-                        quiet,
-                        phone.joined,
-                        phone.state.rumble,
-                    )
+                    (id.clone(), phone.state.clone(), quiet, phone.joined)
                 })
                 .collect()
         };
         rows.sort_by_key(|row| row.3);
-        let session = state.session.lock().expect("session");
+        let players: Vec<Option<u16>> = {
+            let session = state.session.lock().expect("session");
+            rows.iter()
+                .map(|(id, _, _, _)| session.player_of(&device_id(id)))
+                .collect()
+        };
         let phones: Vec<Value> = rows
             .into_iter()
-            .map(|(id, name, quiet, _, rumble)| {
+            .zip(players)
+            .map(|((id, phone, quiet, _), player)| {
                 json!({
-                    "name": name,
-                    "player": session.player_of(&device_id(&id)),
+                    "name": phone.name,
+                    "player": player,
                     "quiet": quiet,
-                    "rumble": rumble,
+                    "rumble": phone.rumble,
+                    "audience": phone.audience,
+                    "rtt": (phone.rtt > 0).then_some(phone.rtt),
+                    "profile": self.profile_of(&id).map(|(person, _)| person),
+                    "avatar": self.avatar_url(&id),
+                    "phone": extras::phone_token(&id),
                 })
             })
             .collect();
@@ -493,7 +515,11 @@ impl PhoneHub {
         } else {
             name.trim().to_string()
         };
-        state.name = name;
+        // A phone linked to a Home person plays under that person's name.
+        state.name = self
+            .profile_of(id)
+            .map(|(_, person)| person)
+            .unwrap_or(name);
         state.x = clamp(state.x);
         state.y = clamp(state.y);
         state.lx = clamp(state.lx);
@@ -592,6 +618,14 @@ fn handle(mut stream: TcpStream, hub: &Arc<PhoneHub>, state: &Arc<State>) {
             .map(str::to_string)
     };
     let websocket_key = header("Sec-WebSocket-Key");
+    let content_length: usize = header("Content-Length")
+        .and_then(|value| value.trim().parse().ok())
+        .unwrap_or(0);
+    let body_start = head
+        .windows(4)
+        .position(|window| window == b"\r\n\r\n")
+        .map(|at| at + 4)
+        .unwrap_or(head.len());
     let (path, query) = url.split_once('?').unwrap_or((url.as_str(), ""));
     let prefix = format!("/p/{}", hub.code);
     let get = method == "GET";
@@ -621,6 +655,62 @@ fn handle(mut stream: TcpStream, hub: &Arc<PhoneHub>, state: &Arc<State>) {
             manifest(&hub.code).as_bytes(),
             PAGE_CACHE,
         );
+    } else if get && path == format!("{prefix}/awake.mp4") {
+        respond(&mut stream, 200, "video/mp4", AWAKE_MP4, SOUND_CACHE);
+    } else if get && let Some(file) = path.strip_prefix(&format!("{prefix}/image/")) {
+        match hub
+            .image_file(file)
+            .and_then(|(path, kind)| extras::read_image(&path).map(|bytes| (bytes, kind)))
+        {
+            Some((bytes, kind)) => respond(&mut stream, 200, kind, &bytes, SOUND_CACHE),
+            None => respond(
+                &mut stream,
+                404,
+                "text/plain; charset=utf-8",
+                b"not found",
+                PAGE_CACHE,
+            ),
+        }
+    } else if method == "POST" && path == format!("{prefix}/avatar") {
+        // A phone's photo: a small JPEG the pad already made.
+        let id = query
+            .split('&')
+            .find_map(|pair| pair.strip_prefix("id="))
+            .unwrap_or("");
+        if !valid_phone_id(id) || content_length == 0 || content_length > MAX_AVATAR_BYTES {
+            respond(
+                &mut stream,
+                400,
+                "application/json",
+                br#"{"ok":false,"error":"a photo is a JPEG of at most 200 KiB"}"#,
+                PAGE_CACHE,
+            );
+            return;
+        }
+        let mut body = head[body_start.min(head.len())..].to_vec();
+        while body.len() < content_length {
+            match stream.read(&mut chunk) {
+                Ok(0) | Err(_) => return,
+                Ok(read) => body.extend_from_slice(&chunk[..read]),
+            }
+        }
+        body.truncate(content_length);
+        match hub.save_avatar(id, &body) {
+            Ok(()) => respond(
+                &mut stream,
+                200,
+                "application/json",
+                br#"{"ok":true}"#,
+                PAGE_CACHE,
+            ),
+            Err(error) => respond(
+                &mut stream,
+                400,
+                "application/json",
+                json!({"ok": false, "error": error}).to_string().as_bytes(),
+                PAGE_CACHE,
+            ),
+        }
     } else if get && path == format!("{prefix}/icon.png") {
         respond(&mut stream, 200, "image/png", PHONE_ICON, PAGE_CACHE);
     } else if get && let Some(file) = path.strip_prefix(&format!("{prefix}/sound/")) {
@@ -743,18 +833,27 @@ fn run_phone(stream: TcpStream, id: &str, hub: &PhoneHub, state: &State) {
         .insert(id.to_string(), (link, sender));
     // A new phone hears the current layout and the open game's sounds
     // straight away, so it can preload them.
-    let hello = json!({
-        "layout": hub.layout(),
-        "game": hub.in_game.load(Ordering::SeqCst),
-        "pad": pad_version(),
-        "sounds": hub.sound_urls(),
-    });
-    let mut open = socket.send(Message::Text(hello.to_string().into())).is_ok();
+    let mut hello = serde_json::Map::new();
+    hello.insert("layout".into(), json!(hub.layout()));
+    hello.insert("game".into(), json!(hub.in_game.load(Ordering::SeqCst)));
+    hello.insert("pad".into(), json!(pad_version()));
+    hello.insert("sounds".into(), hub.sound_urls());
+    hub.hello_extras(id, &mut hello);
+    let mut open = socket
+        .send(Message::Text(Value::Object(hello).to_string().into()))
+        .is_ok();
     let mut told: Option<String> = None;
     while open && !state.stop.load(Ordering::SeqCst) {
         match socket.read() {
             Ok(Message::Text(text)) => {
-                if let Ok(update) = serde_json::from_str::<PhoneState>(text.as_str()) {
+                // Discrete messages (events, pings, profile links, requests)
+                // carry a kind; everything else is the pad's whole state.
+                let parsed: Value = serde_json::from_str(text.as_str()).unwrap_or_default();
+                if parsed["kind"].is_string() {
+                    if let Some(reply) = hub.handle_message(state, id, &parsed) {
+                        open = socket.send(Message::Text(reply.to_string().into())).is_ok();
+                    }
+                } else if let Ok(update) = serde_json::from_value::<PhoneState>(parsed) {
                     if update.shelf && hub.in_game.load(Ordering::SeqCst) {
                         hub.shelf_request.store(true, Ordering::SeqCst);
                     }

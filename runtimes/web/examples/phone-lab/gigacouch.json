@@ -1,0 +1,419 @@
+{
+  "manifest_version": 1,
+  "game_id": "gigacouch.phone-lab",
+  "title": "Phone Lab",
+  "version": "0.1.0",
+  "runtime": "web-1",
+  "entrypoint": "web/index.html",
+  "gigacouch_api": "1",
+  "players": {
+    "min": 1
+  },
+  "phone": {
+    "layout": "lab-pad",
+    "images": {
+      "sun": "images/sun.png",
+      "moon": "images/moon.png",
+      "star": "images/star.png",
+      "comet": "images/comet.png",
+      "scene": "images/scene.png"
+    },
+    "sounds": {},
+    "layouts": {
+      "lab-pad": {
+        "landscape": [
+          {
+            "type": "stick",
+            "axis": "move",
+            "rect": [
+              0,
+              0,
+              0.5,
+              1
+            ],
+            "hint": "Drag anywhere here to move"
+          },
+          {
+            "type": "button",
+            "key": "start",
+            "label": "Next",
+            "small": true,
+            "x": 0.5,
+            "y": 0.1,
+            "size": 0.14
+          },
+          {
+            "type": "button",
+            "key": "north",
+            "label": "Y",
+            "color": "amber",
+            "x": 0.84,
+            "y": 0.22,
+            "size": 0.24
+          },
+          {
+            "type": "button",
+            "key": "east",
+            "label": "B",
+            "color": "coral",
+            "x": 0.64,
+            "y": 0.46,
+            "size": 0.28
+          },
+          {
+            "type": "button",
+            "key": "south",
+            "label": "A",
+            "color": "mint",
+            "x": 0.84,
+            "y": 0.7,
+            "size": 0.34
+          }
+        ],
+        "portrait": [
+          {
+            "type": "stick",
+            "axis": "move",
+            "rect": [
+              0,
+              0.5,
+              1,
+              0.5
+            ],
+            "hint": "Drag anywhere here to move"
+          },
+          {
+            "type": "button",
+            "key": "start",
+            "label": "Next",
+            "small": true,
+            "x": 0.5,
+            "y": 0.05,
+            "size": 0.2
+          },
+          {
+            "type": "button",
+            "key": "east",
+            "label": "B",
+            "color": "coral",
+            "x": 0.2,
+            "y": 0.28,
+            "size": 0.26
+          },
+          {
+            "type": "button",
+            "key": "north",
+            "label": "Y",
+            "color": "amber",
+            "x": 0.5,
+            "y": 0.22,
+            "size": 0.24
+          },
+          {
+            "type": "button",
+            "key": "south",
+            "label": "A",
+            "color": "mint",
+            "x": 0.8,
+            "y": 0.3,
+            "size": 0.32
+          }
+        ]
+      },
+      "lab-draw": {
+        "landscape": [
+          {
+            "type": "canvas",
+            "rect": [
+              0.01,
+              0.03,
+              0.84,
+              0.94
+            ]
+          },
+          {
+            "type": "palette",
+            "rect": [
+              0.87,
+              0.03,
+              0.12,
+              0.78
+            ]
+          },
+          {
+            "type": "button",
+            "key": "start",
+            "label": "Next",
+            "color": "panel",
+            "rect": [
+              0.87,
+              0.84,
+              0.12,
+              0.13
+            ]
+          }
+        ],
+        "portrait": [
+          {
+            "type": "canvas",
+            "rect": [
+              0.02,
+              0.01,
+              0.96,
+              0.78
+            ]
+          },
+          {
+            "type": "palette",
+            "rect": [
+              0.02,
+              0.81,
+              0.7,
+              0.17
+            ]
+          },
+          {
+            "type": "button",
+            "key": "start",
+            "label": "Next",
+            "color": "panel",
+            "rect": [
+              0.74,
+              0.83,
+              0.24,
+              0.13
+            ]
+          }
+        ]
+      },
+      "lab-quiz": {
+        "landscape": [
+          {
+            "type": "button",
+            "key": "south",
+            "label": "A",
+            "color": "mint",
+            "rect": [
+              0.02,
+              0.03,
+              0.47,
+              0.4
+            ]
+          },
+          {
+            "type": "button",
+            "key": "east",
+            "label": "B",
+            "color": "coral",
+            "rect": [
+              0.51,
+              0.03,
+              0.47,
+              0.4
+            ]
+          },
+          {
+            "type": "button",
+            "key": "west",
+            "label": "X",
+            "color": "blue",
+            "rect": [
+              0.02,
+              0.45,
+              0.47,
+              0.4
+            ]
+          },
+          {
+            "type": "button",
+            "key": "north",
+            "label": "Y",
+            "color": "amber",
+            "rect": [
+              0.51,
+              0.45,
+              0.47,
+              0.4
+            ]
+          },
+          {
+            "type": "button",
+            "key": "start",
+            "label": "Next",
+            "color": "panel",
+            "rect": [
+              0.38,
+              0.87,
+              0.24,
+              0.11
+            ]
+          }
+        ],
+        "portrait": [
+          {
+            "type": "button",
+            "key": "south",
+            "label": "A",
+            "color": "mint",
+            "rect": [
+              0.04,
+              0.01,
+              0.92,
+              0.2
+            ]
+          },
+          {
+            "type": "button",
+            "key": "east",
+            "label": "B",
+            "color": "coral",
+            "rect": [
+              0.04,
+              0.22,
+              0.92,
+              0.2
+            ]
+          },
+          {
+            "type": "button",
+            "key": "west",
+            "label": "X",
+            "color": "blue",
+            "rect": [
+              0.04,
+              0.43,
+              0.92,
+              0.2
+            ]
+          },
+          {
+            "type": "button",
+            "key": "north",
+            "label": "Y",
+            "color": "amber",
+            "rect": [
+              0.04,
+              0.64,
+              0.92,
+              0.2
+            ]
+          },
+          {
+            "type": "button",
+            "key": "start",
+            "label": "Next",
+            "color": "panel",
+            "rect": [
+              0.3,
+              0.87,
+              0.4,
+              0.11
+            ]
+          }
+        ]
+      },
+      "lab-rps": {
+        "landscape": [
+          {
+            "type": "button",
+            "key": "south",
+            "label": "Rock",
+            "color": "mint",
+            "rect": [
+              0.02,
+              0.04,
+              0.31,
+              0.8
+            ]
+          },
+          {
+            "type": "button",
+            "key": "east",
+            "label": "Paper",
+            "color": "blue",
+            "rect": [
+              0.345,
+              0.04,
+              0.31,
+              0.8
+            ]
+          },
+          {
+            "type": "button",
+            "key": "west",
+            "label": "Scissors",
+            "color": "coral",
+            "rect": [
+              0.67,
+              0.04,
+              0.31,
+              0.8
+            ]
+          },
+          {
+            "type": "button",
+            "key": "start",
+            "label": "Next",
+            "color": "panel",
+            "rect": [
+              0.38,
+              0.87,
+              0.24,
+              0.11
+            ]
+          }
+        ],
+        "portrait": [
+          {
+            "type": "button",
+            "key": "south",
+            "label": "Rock",
+            "color": "mint",
+            "rect": [
+              0.04,
+              0.01,
+              0.92,
+              0.27
+            ]
+          },
+          {
+            "type": "button",
+            "key": "east",
+            "label": "Paper",
+            "color": "blue",
+            "rect": [
+              0.04,
+              0.29,
+              0.92,
+              0.27
+            ]
+          },
+          {
+            "type": "button",
+            "key": "west",
+            "label": "Scissors",
+            "color": "coral",
+            "rect": [
+              0.04,
+              0.57,
+              0.92,
+              0.27
+            ]
+          },
+          {
+            "type": "button",
+            "key": "start",
+            "label": "Next",
+            "color": "panel",
+            "rect": [
+              0.3,
+              0.87,
+              0.4,
+              0.11
+            ]
+          }
+        ]
+      }
+    }
+  }
+}

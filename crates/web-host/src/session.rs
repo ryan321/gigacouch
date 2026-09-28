@@ -5,6 +5,9 @@ pub const MAX_REQUEST_BYTES: u64 = 300 * 1024;
 pub const MAX_SAVE_BYTES: usize = 256 * 1024;
 const EAST_HOLD: Duration = Duration::from_millis(1250);
 const DEAD_ZONE: f32 = 0.2;
+/// How long a phone that drops keeps its player slot. Coming back within it
+/// returns the same player number, without pressing A again.
+pub const REJOIN_WINDOW: Duration = Duration::from_secs(120);
 // A sanity bound on one page's device post, not a player limit: phones are
 // added by the host, and players are limited only by the game.
 const MAX_DEVICES: usize = 4096;
@@ -49,6 +52,11 @@ pub struct RawDevice {
     /// through as-is, with no dead zone and no rounding to a circle.
     #[serde(default)]
     pub absolute: bool,
+    /// Set by the host for phones: the player's photo and Home profile.
+    #[serde(default, skip)]
+    pub avatar: Option<String>,
+    #[serde(default, skip)]
+    pub profile: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -86,6 +94,19 @@ pub struct SnapshotPlayer {
     /// Buttons pressed since the last snapshot, each reported once.
     pub pressed: Buttons,
     pub glyphs: Glyphs,
+    /// "pad", "phone", or "keyboard".
+    pub kind: String,
+    /// The pad's own id, so the page can rumble it. Pads only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub pad: Option<String>,
+    /// The player's photo, an address on this host. Phones that took one.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub avatar: Option<String>,
+    /// The Home profile a phone linked to, such as "ada".
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub profile: Option<String>,
+    /// A phone that dropped and still holds its slot.
+    pub away: bool,
 }
 
 /// The five buttons every layout and pad maps onto: the four face buttons by
@@ -151,6 +172,11 @@ struct Slot {
     jump: bool,
     held: Buttons,
     pressed: Buttons,
+    kind: String,
+    avatar: Option<String>,
+    profile: Option<String>,
+    /// When a phone holding this slot dropped. The slot waits for it.
+    away_since: Option<Instant>,
 }
 
 pub struct Session {
@@ -221,15 +247,38 @@ impl Session {
             }
             devices.push(device);
         }
+        // A phone that dropped too long ago gives its slot up.
+        for slot in &mut self.slots {
+            if slot
+                .as_ref()
+                .and_then(|state| state.away_since)
+                .is_some_and(|since| now.saturating_duration_since(since) >= REJOIN_WINDOW)
+            {
+                *slot = None;
+            }
+        }
         let live: Vec<String> = devices.iter().map(|device| device.id.clone()).collect();
-        let gone: Vec<String> = self
+        let gone: Vec<(String, Option<usize>)> = self
             .tracked
             .iter()
             .filter(|tracked| !live.iter().any(|id| id == &tracked.id))
-            .map(|tracked| tracked.id.clone())
+            .map(|tracked| (tracked.id.clone(), tracked.slot))
             .collect();
-        for id in gone {
-            self.release_device(&id);
+        for (id, slot) in gone {
+            match slot {
+                // A phone keeps its slot for a while, marked away.
+                Some(index) if id.starts_with("phone:") => {
+                    if let Some(state) = self.slots.get_mut(index).and_then(Option::as_mut) {
+                        state.away_since = Some(now);
+                        state.held = Buttons::default();
+                        state.move_x = 0.0;
+                        state.move_y = 0.0;
+                        state.look_x = 0.0;
+                        state.look_y = 0.0;
+                    }
+                }
+                _ => self.release_device(&id),
+            }
             self.tracked.retain(|tracked| tracked.id != id);
         }
         self.menu_x = 0.0;
@@ -251,6 +300,16 @@ impl Session {
             players.push(SnapshotPlayer {
                 id: u16::try_from(index + 1).unwrap_or(u16::MAX),
                 name: slot.name.clone(),
+                kind: slot.kind.clone(),
+                pad: (slot.kind == "pad").then(|| {
+                    slot.device_id
+                        .strip_prefix("pad:")
+                        .unwrap_or(&slot.device_id)
+                        .to_string()
+                }),
+                avatar: slot.avatar.clone(),
+                profile: slot.profile.clone(),
+                away: slot.away_since.is_some(),
                 movement: Move {
                     x: slot.move_x,
                     y: slot.move_y,
@@ -315,17 +374,32 @@ impl Session {
             .iter()
             .position(|tracked| tracked.id == device.id);
         if position.is_none() {
+            // A phone coming back within the rejoin window takes its old
+            // slot again, without pressing A.
+            let returning = self.slots.iter().position(|slot| {
+                slot.as_ref()
+                    .is_some_and(|state| state.device_id == device.id && state.away_since.is_some())
+            });
+            if let Some(index) = returning
+                && let Some(state) = self.slots[index].as_mut()
+            {
+                state.away_since = None;
+            }
+            // A returning phone starts from what it holds now, so coming back
+            // never fires a press. A new device starts released: Chrome shows
+            // a pad only once a button is down, and that press must join.
+            let back = returning.is_some();
             self.tracked.push(Tracked {
                 id: device.id.clone(),
-                south: false,
-                east: false,
-                west: false,
-                north: false,
-                start: false,
-                jump: false,
-                leave: false,
+                south: back && device.south,
+                east: back && device.east,
+                west: back && device.west,
+                north: back && device.north,
+                start: back && device.start,
+                jump: back && device.jump,
+                leave: back && device.leave,
                 east_since: None,
-                slot: None,
+                slot: returning,
             });
         }
         let position = self
@@ -369,12 +443,14 @@ impl Session {
                 south_rise
             };
             if join {
-                slot = self.allocate(&device.id, &name, &family);
+                slot = self.allocate(&device, &name, &family);
             }
         } else if let Some(slot_index) = slot {
             let state = self.slots[slot_index].as_mut().expect("slot");
             state.name = name.clone();
             state.family = family.clone();
+            state.avatar = device.avatar.clone();
+            state.profile = device.profile.clone();
             state.move_x = move_x;
             state.move_y = move_y;
             state.look_x = look_x;
@@ -444,7 +520,13 @@ impl Session {
     }
 
     /// The first free slot, or a new one when the game's limit allows.
-    fn allocate(&mut self, device_id: &str, name: &str, family: &str) -> Option<usize> {
+    fn allocate(&mut self, device: &RawDevice, name: &str, family: &str) -> Option<usize> {
+        let device_id = device.id.as_str();
+        let kind = match device.kind.as_str() {
+            "keyboard" => "keyboard",
+            "phone" => "phone",
+            _ => "pad",
+        };
         let index = match self.slots.iter().position(|slot| slot.is_none()) {
             Some(index) => index,
             None if self.limit.is_none_or(|limit| self.slots.len() < limit) => {
@@ -464,6 +546,10 @@ impl Session {
             jump: false,
             held: Buttons::default(),
             pressed: Buttons::default(),
+            kind: kind.to_string(),
+            avatar: device.avatar.clone(),
+            profile: device.profile.clone(),
+            away_since: None,
         });
         let slot = index;
         if let Some(tracked) = self

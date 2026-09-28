@@ -696,7 +696,10 @@ fn a_phone_joins_as_a_player_and_leaves_when_it_disconnects() {
     });
     post_devices(&host);
     let (_, snapshot) = exchange(host.origin(), "GET", "/__gigacouch/v1/snapshot", None);
-    assert!(snapshot.contains("\"players\":[]"), "{snapshot}");
+    // A phone that drops keeps its spot for a while, marked away.
+    let snapshot: serde_json::Value = serde_json::from_str(&snapshot).unwrap();
+    assert_eq!(snapshot["players"][0]["away"], true, "{snapshot}");
+    assert_eq!(snapshot["players"][0]["kind"], "phone");
 }
 
 #[test]
@@ -1410,4 +1413,484 @@ fn a_game_rumbles_one_player_s_phone_and_sees_who_can_vibrate() {
 
     assert_eq!(rumble(json!(1), json!("earthquake")).0, 400);
     assert_eq!(rumble(json!(1), json!(9000)).0, 400);
+}
+
+// ---- Phone features games opt into -------------------------------------------
+
+fn lab_home(dir: &std::path::Path) -> Host {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let home = root.join("../../runtimes/web/home");
+    let lab = root.join("../../runtimes/web/examples/phone-lab/web");
+    Host::start_home_with(
+        &home,
+        &[("phone-lab", lab.as_path())],
+        &dir.join("profiles.json"),
+        Some(json!([])),
+        None,
+        None,
+        PhoneListen::Loopback,
+    )
+    .unwrap()
+}
+
+fn phone_socket(
+    host: &Host,
+    id: &str,
+) -> tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>> {
+    let base = phones(host)["join_url"]
+        .as_str()
+        .unwrap()
+        .replacen("http://", "ws://", 1);
+    tungstenite::connect(format!("{base}/ws?id={id}"))
+        .unwrap()
+        .0
+}
+
+fn say<S: std::io::Read + std::io::Write>(
+    socket: &mut tungstenite::WebSocket<S>,
+    value: serde_json::Value,
+) {
+    socket
+        .send(tungstenite::Message::Text(value.to_string().into()))
+        .unwrap();
+}
+
+fn post_json(host: &Host, path: &str, body: serde_json::Value) -> (u16, String) {
+    exchange(
+        host.origin(),
+        "POST",
+        path,
+        Some(body.to_string().as_bytes()),
+    )
+}
+
+fn join_player<S: std::io::Read + std::io::Write>(
+    host: &Host,
+    socket: &mut tungstenite::WebSocket<S>,
+    name: &str,
+) {
+    say(socket, json!({"name": name, "south": true}));
+    wait_for("the phone to join", || {
+        post_devices(host);
+        phones(host)["phones"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|phone| phone["name"] == name && phone["player"].is_u64())
+    });
+    say(socket, json!({"name": name}));
+}
+
+fn snapshot_json(host: &Host) -> serde_json::Value {
+    let (_, body) = exchange(host.origin(), "GET", "/__gigacouch/v1/snapshot", None);
+    serde_json::from_str(&body).unwrap()
+}
+
+#[test]
+fn the_phone_lab_ships_its_own_layouts_and_images() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../runtimes/web/examples");
+    let lab = WebPackage::read(&root.join("phone-lab")).unwrap();
+    assert_eq!(lab.phone_layout(), "lab-pad");
+    assert_eq!(lab.phone_layouts().len(), 4);
+    assert_eq!(lab.phone_images().len(), 5);
+    assert_eq!(lab.players_max(), None);
+}
+
+#[test]
+fn a_package_checks_its_own_layouts() {
+    let dir = tempfile::tempdir().unwrap();
+    package(dir.path(), 4, "web/index.html");
+    let manifest = dir.path().join("gigacouch.json");
+    let write = |phone: serde_json::Value| -> Result<WebPackage, String> {
+        let mut value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&manifest).unwrap()).unwrap();
+        value["phone"] = phone;
+        fs::write(&manifest, value.to_string()).unwrap();
+        WebPackage::read(dir.path()).map_err(|error| error.to_string())
+    };
+    let good = json!({"landscape": [{"type": "button", "key": "south", "label": "Go", "rect": [0, 0, 1, 1], "sneaky": "<script>"}]});
+    let package = write(json!({"layout": "big-go", "layouts": {"big-go": good}})).unwrap();
+    assert_eq!(package.phone_layout(), "big-go");
+    let cleaned = &package.phone_layouts()["big-go"]["landscape"][0];
+    assert!(
+        cleaned.get("sneaky").is_none(),
+        "unknown fields are dropped: {cleaned}"
+    );
+
+    for (layouts, expected) in [
+        (json!({"stick-2": good}), "not a built-in layout"),
+        (
+            json!({"bad": {"landscape": [{"type": "button", "key": "select", "label": "?", "x": 0.5, "y": 0.5, "size": 0.3}]}}),
+            "south, east, west, north, or start",
+        ),
+        (
+            json!({"bad": {"landscape": [{"type": "iframe", "rect": [0, 0, 1, 1]}]}}),
+            "each control's type",
+        ),
+        (
+            json!({"bad": {"landscape": [{"type": "stick", "rect": [0, 0, 2, 1]}]}}),
+            "from 0 to 1",
+        ),
+        (json!({"bad": {"landscape": []}}), "1–16 controls"),
+    ] {
+        let error = write(json!({"layouts": layouts})).unwrap_err();
+        assert!(error.contains(expected), "{layouts}: {error}");
+    }
+    let error = write(json!({"layout": "missing"})).unwrap_err();
+    assert!(error.contains("phone.layout must be one of"), "{error}");
+}
+
+#[test]
+fn opening_the_lab_sends_its_own_layout_and_images_to_phones() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = lab_home(dir.path());
+    let mut socket = phone_socket(&host, "labphone001");
+    next_with(&mut socket, "\"layout\":\"stick-2\"");
+    let (status, _) = exchange(host.origin(), "GET", "/play/phone-lab/", None);
+    assert_eq!(status, 200);
+    let images: serde_json::Value =
+        serde_json::from_str(&next_with(&mut socket, "\"images\":{\"comet\"")).unwrap();
+    let sun = images["images"]["sun"].as_str().unwrap().to_string();
+    let pushed: serde_json::Value =
+        serde_json::from_str(&next_with(&mut socket, "\"layout\":\"lab-pad\"")).unwrap();
+    assert_eq!(pushed["layout_spec"]["landscape"][0]["type"], "stick");
+
+    let phone = format!("http://127.0.0.1:{}", host.phone_port().unwrap());
+    let raw = raw_exchange(&phone, "GET", &sun, None).to_ascii_lowercase();
+    assert!(raw.starts_with("http/1.1 200") && raw.contains("content-type: image/png"));
+    let path = phones(&host)["join_url"]
+        .as_str()
+        .unwrap()
+        .trim_start_matches(&phone)
+        .to_string();
+    let raw = raw_exchange(&phone, "GET", &format!("{path}/awake.mp4"), None).to_ascii_lowercase();
+    assert!(raw.starts_with("http/1.1 200") && raw.contains("content-type: video/mp4"));
+
+    // A game can switch to its own layout while running, and back.
+    let (status, _) = post_json(
+        &host,
+        "/__gigacouch/v1/phone/layout",
+        json!({"layout": "lab-rps"}),
+    );
+    assert_eq!(status, 200);
+    let pushed: serde_json::Value =
+        serde_json::from_str(&next_with(&mut socket, "\"layout\":\"lab-rps\"")).unwrap();
+    assert_eq!(pushed["layout_spec"]["landscape"][0]["label"], "Rock");
+}
+
+#[test]
+fn a_private_screen_reaches_one_player_and_its_choice_comes_back() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = lab_home(dir.path());
+    let mut ada = phone_socket(&host, "adaphone001");
+    let mut bob = phone_socket(&host, "bobphone001");
+    join_player(&host, &mut ada, "Ada");
+    say(&mut bob, json!({"name": "Bob", "audience": true}));
+    let (status, _) = exchange(host.origin(), "GET", "/play/phone-lab/", None);
+    assert_eq!(status, 200);
+
+    let screen = json!({"id": "hand", "title": "Your hand", "choices": [{"id": "sun-0", "label": "Sun", "image": "sun"}]});
+    let (status, body) = post_json(
+        &host,
+        "/__gigacouch/v1/phone/screen",
+        json!({"player": 1, "screen": screen}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"phones\":1"));
+    let shown: serde_json::Value =
+        serde_json::from_str(&next_with(&mut ada, "\"screen\":{")).unwrap();
+    assert_eq!(shown["screen"]["title"], "Your hand");
+    assert!(
+        shown["screen"]["choices"][0]["image"]
+            .as_str()
+            .unwrap()
+            .contains("/image/")
+    );
+
+    say(
+        &mut ada,
+        json!({"kind": "event", "event": {"type": "choice", "choice": "sun-0", "screen": "hand"}}),
+    );
+    wait_for("the choice", || {
+        let events = snapshot_json(&host)["phone_events"].clone();
+        events.as_array().unwrap().iter().any(|event| {
+            event["choice"] == "sun-0" && event["player"] == 1 && event["name"] == "Ada"
+        })
+    });
+
+    // The audience phone takes no player spot but hears audience screens.
+    let listed = phones(&host);
+    let bob_row = listed["phones"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "Bob")
+        .unwrap()
+        .clone();
+    assert_eq!(bob_row["audience"], true);
+    assert_eq!(bob_row["player"], serde_json::Value::Null);
+    // A choice can start one of the phone's own actions.
+    let photo = json!({"player": 1, "screen": {"choices": [{"id": "snap", "label": "Take a photo", "action": "photo"}]}});
+    assert_eq!(
+        post_json(&host, "/__gigacouch/v1/phone/screen", photo).0,
+        200
+    );
+    next_with(&mut ada, "\"action\":\"photo\"");
+    let (status, body) = post_json(
+        &host,
+        "/__gigacouch/v1/phone/screen",
+        json!({"player": "audience", "screen": {"title": "Vote!"}}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"phones\":1"));
+    next_with(&mut bob, "\"Vote!\"");
+
+    for bad in [
+        json!({"player": 1, "screen": {"image": "not-declared"}}),
+        json!({"player": 1, "screen": {}}),
+        json!({"player": 1, "screen": {"choices": [{"id": "has space", "label": "x"}]}}),
+        json!({"player": "everyone", "screen": {"title": "x"}}),
+        json!({"player": 1, "screen": {"choices": [{"id": "go", "label": "Go", "action": "open-browser"}]}}),
+    ] {
+        assert_eq!(
+            post_json(&host, "/__gigacouch/v1/phone/screen", bad.clone()).0,
+            400,
+            "{bad}"
+        );
+    }
+}
+
+#[test]
+fn a_typed_answer_and_button_labels() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = lab_home(dir.path());
+    let mut ada = phone_socket(&host, "adaphone002");
+    join_player(&host, &mut ada, "Ada");
+    exchange(host.origin(), "GET", "/play/phone-lab/", None);
+
+    // Text without a question is ignored.
+    say(
+        &mut ada,
+        json!({"kind": "event", "event": {"type": "text", "text": "unasked"}}),
+    );
+    let (status, _) = post_json(
+        &host,
+        "/__gigacouch/v1/phone/ask",
+        json!({"player": 1, "ask": {"id": "caption", "prompt": "Caption?", "max": 10}}),
+    );
+    assert_eq!(status, 200);
+    next_with(&mut ada, "\"prompt\":\"Caption?\"");
+    say(
+        &mut ada,
+        json!({"kind": "event", "event": {"type": "text", "text": "A very long caption indeed"}}),
+    );
+    let mut texts = Vec::new();
+    wait_for("the typed answer", || {
+        texts.extend(
+            snapshot_json(&host)["phone_events"]
+                .as_array()
+                .unwrap()
+                .clone(),
+        );
+        texts.iter().any(|event| event["type"] == "text")
+    });
+    let answers: Vec<&serde_json::Value> = texts
+        .iter()
+        .filter(|event| event["type"] == "text")
+        .collect();
+    assert_eq!(answers.len(), 1, "the unasked text was dropped: {texts:?}");
+    assert_eq!(
+        answers[0]["text"], "A very lon",
+        "cut to the question's max"
+    );
+    assert_eq!(answers[0]["ask"], "caption");
+
+    let (status, _) = post_json(
+        &host,
+        "/__gigacouch/v1/phone/labels",
+        json!({"player": "all", "labels": {"south": "Paris", "east": "Rome"}}),
+    );
+    assert_eq!(status, 200);
+    next_with(&mut ada, "\"Paris\"");
+    assert_eq!(
+        post_json(
+            &host,
+            "/__gigacouch/v1/phone/labels",
+            json!({"player": 1, "labels": {"select": "x"}})
+        )
+        .0,
+        400
+    );
+}
+
+#[test]
+fn drawing_strokes_are_cleaned_on_the_way_to_the_game() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = lab_home(dir.path());
+    let mut ada = phone_socket(&host, "adaphone003");
+    join_player(&host, &mut ada, "Ada");
+    say(
+        &mut ada,
+        json!({"kind": "event", "event": {"type": "stroke", "stroke": 3, "points": [[0.25, 0.5], [2.0, -1.0]], "color": "javascript:", "end": true}}),
+    );
+    say(
+        &mut ada,
+        json!({"kind": "event", "event": {"type": "stroke", "points": vec![[0.5, 0.5]; 200]}}),
+    );
+    let mut events = Vec::new();
+    wait_for("the stroke", || {
+        events.extend(
+            snapshot_json(&host)["phone_events"]
+                .as_array()
+                .unwrap()
+                .clone(),
+        );
+        !events.is_empty()
+    });
+    std::thread::sleep(Duration::from_millis(100));
+    events.extend(
+        snapshot_json(&host)["phone_events"]
+            .as_array()
+            .unwrap()
+            .clone(),
+    );
+    assert_eq!(
+        events.len(),
+        1,
+        "a stroke over 128 points is dropped: {events:?}"
+    );
+    assert_eq!(events[0]["points"], json!([[0.25, 0.5], [1.0, 0.0]]));
+    assert_eq!(events[0]["color"], "mint");
+    assert_eq!(events[0]["end"], true);
+}
+
+#[test]
+fn a_dropped_phone_keeps_its_player_number_and_comes_back_into_it() {
+    let mut session = Session::unlimited();
+    let start = Instant::now();
+    let ada = |south: bool| phone_device(json!({"south": south}));
+    session.apply(ada(true), start);
+    session.apply(ada(false), start);
+    assert_eq!(session.player_of("phone:abc"), Some(1));
+    // Someone else joins while Ada's phone is away.
+    let bob = json!({"id": "phone:bob", "kind": "phone", "name": "Bob", "family": "phone", "analog": true, "south": true});
+    session.apply(
+        serde_json::from_value(json!({"devices": [bob.clone()]})).unwrap(),
+        start,
+    );
+    let snapshot = serde_json::to_value(session.snapshot()).unwrap();
+    let away: Vec<_> = snapshot["players"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|p| (p["id"].clone(), p["away"].clone()))
+        .collect();
+    assert_eq!(
+        away,
+        vec![(json!(1), json!(true)), (json!(2), json!(false))],
+        "Bob takes 2; 1 waits for Ada"
+    );
+    // Ada comes back without pressing anything.
+    let mut both: DevicePost = serde_json::from_value(json!({"devices": [bob.clone()]})).unwrap();
+    both.devices.extend(ada(false).devices);
+    session.apply(both, start + Duration::from_secs(30));
+    assert_eq!(session.player_of("phone:abc"), Some(1));
+    // After the rejoin window the spot is freed.
+    session.apply(
+        serde_json::from_value(json!({"devices": [bob.clone()]})).unwrap(),
+        start + Duration::from_secs(40),
+    );
+    session.apply(
+        serde_json::from_value(json!({"devices": [bob]})).unwrap(),
+        start + Duration::from_secs(40) + couch_web_host::REJOIN_WINDOW,
+    );
+    let snapshot = serde_json::to_value(session.snapshot()).unwrap();
+    assert_eq!(snapshot["players"].as_array().unwrap().len(), 1);
+}
+
+#[test]
+fn a_phone_links_to_a_home_person_takes_a_photo_and_starts_a_game() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = lab_home(dir.path());
+    let (status, _) = post_json(&host, "/__gigacouch/v1/home/add", json!({"name": "Ada"}));
+    assert_eq!(status, 200);
+    let mut phone = phone_socket(&host, "adaphone004");
+    join_player(&host, &mut phone, "Phone");
+
+    say(&mut phone, json!({"kind": "request", "what": "profiles"}));
+    let people = next_with(&mut phone, "\"profiles\"");
+    assert!(people.contains("\"Ada\""), "{people}");
+    say(&mut phone, json!({"kind": "profile", "id": "ada"}));
+    next_with(&mut phone, "\"profile\":{\"id\":\"ada\"");
+    say(&mut phone, json!({"name": "Phone"}));
+    wait_for("the linked name", || {
+        post_devices(&host);
+        let players = snapshot_json(&host)["players"].clone();
+        players[0]["name"] == "Ada" && players[0]["profile"] == "ada"
+    });
+    assert!(
+        dir.path().join("phone-profiles.json").is_file(),
+        "links are kept"
+    );
+
+    // A photo: a JPEG, saved and served on the host's own origin.
+    let phone_origin = format!("http://127.0.0.1:{}", host.phone_port().unwrap());
+    let path = phones(&host)["join_url"]
+        .as_str()
+        .unwrap()
+        .trim_start_matches(&phone_origin)
+        .to_string();
+    let mut jpeg = vec![0xFF, 0xD8, 0xFF, 0xE0];
+    jpeg.extend_from_slice(b"photo-bytes");
+    let (status, _) = exchange(
+        &phone_origin,
+        "POST",
+        &format!("{path}/avatar?id=adaphone004"),
+        Some(&jpeg),
+    );
+    assert_eq!(status, 200);
+    let (status, _) = exchange(
+        &phone_origin,
+        "POST",
+        &format!("{path}/avatar?id=adaphone004"),
+        Some(b"not a jpeg"),
+    );
+    assert_eq!(status, 400);
+    let mut avatar = String::new();
+    wait_for("the photo on the player", || {
+        post_devices(&host);
+        avatar = snapshot_json(&host)["players"][0]["avatar"]
+            .as_str()
+            .unwrap_or("")
+            .to_string();
+        !avatar.is_empty()
+    });
+    let raw = raw_exchange(host.origin(), "GET", &avatar, None).to_ascii_lowercase();
+    assert!(
+        raw.contains(" 200 ok") && raw.contains("content-type: image/jpeg"),
+        "{avatar}: {}",
+        &raw[..raw.len().min(300)]
+    );
+    assert_eq!(
+        exchange(
+            host.origin(),
+            "GET",
+            "/__gigacouch/v1/avatar/0123456789abcdef.jpg",
+            None
+        )
+        .0,
+        404
+    );
+
+    // A ping is answered at once.
+    say(&mut phone, json!({"kind": "ping", "t": 1234}));
+    next_with(&mut phone, "\"pong\":1234");
+
+    // Starting a game from the phone: Home picks the request up once.
+    say(&mut phone, json!({"kind": "request", "what": "shelf"}));
+    next_with(&mut phone, "\"shelf\"");
+    say(&mut phone, json!({"kind": "open", "id": "not-a-game"}));
+    next_with(&mut phone, "\"notice\"");
+    let (_, remote) = exchange(host.origin(), "GET", "/__gigacouch/v1/home/remote", None);
+    assert!(remote.contains("\"open\":null"), "{remote}");
 }

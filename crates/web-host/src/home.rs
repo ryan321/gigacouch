@@ -103,6 +103,13 @@ pub(crate) fn route(state: &State, method: &str, path: &str, body: &[u8]) -> Opt
                 // if it sets one.
                 let package = package_for(&web_root);
                 if let Some(hub) = &state.phones {
+                    // Images and layouts first: the layout may be one of them.
+                    match package.as_ref() {
+                        Some(package) => {
+                            hub.set_game_extras(package.phone_images(), package.phone_layouts())
+                        }
+                        None => hub.set_game_extras(&[], &serde_json::Map::new()),
+                    }
                     hub.set_layout(Some(
                         package
                             .as_ref()
@@ -157,6 +164,41 @@ fn home_payload(shelf: &Shelf) -> String {
         "account": account,
     })
     .to_string()
+}
+
+/// Home's people, for a phone's "I'm…" menu: (id, name).
+pub(crate) fn people(state: &State) -> Vec<(String, String)> {
+    let Some(shelf) = state.home.as_ref() else {
+        return Vec::new();
+    };
+    let book = shelf.book.lock().expect("profiles");
+    book.profiles
+        .iter()
+        .map(|person| (person.id.clone(), person.name.clone()))
+        .collect()
+}
+
+/// Games a phone can start from the shelf: the ones on this computer that
+/// play, as id, title, and color.
+pub(crate) fn startable_games(state: &State) -> Vec<serde_json::Value> {
+    let Some(shelf) = state.home.as_ref() else {
+        return Vec::new();
+    };
+    let payload: serde_json::Value = serde_json::from_str(&home_payload(shelf)).unwrap_or_default();
+    payload["games"]
+        .as_array()
+        .map(|games| {
+            games
+                .iter()
+                .filter(|game| {
+                    game["place"] != "library"
+                        && game["action"] != "download"
+                        && game["playable"] != false
+                })
+                .map(|game| json!({"id": game["id"], "title": game["title"], "color": game["color"]}))
+                .collect()
+        })
+        .unwrap_or_default()
 }
 
 fn local_games(shelf: &Shelf) -> serde_json::Value {

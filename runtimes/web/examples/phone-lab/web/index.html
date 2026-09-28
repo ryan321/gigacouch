@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <title>Phone Lab</title>
+    <link rel="stylesheet" href="lab.css">
+  </head>
+  <body>
+    <main id="lab">
+      <header class="top">
+        <div class="now">
+          <p class="eyebrow">Phone Lab</p>
+          <h1 id="title"></h1>
+          <p id="about" class="about"></p>
+          <p id="how" class="how"></p>
+        </div>
+        <aside id="join" class="join" hidden>
+          <div id="join-qr" class="qr"></div>
+          <p>Scan to join<br><span id="join-url"></span></p>
+        </aside>
+      </header>
+      <ol id="strip" class="strip" aria-label="Stations"></ol>
+      <section id="stage" class="stage" aria-live="polite"></section>
+    </main>
+    <script src="lab.js"></script>
+  </body>
+</html>
