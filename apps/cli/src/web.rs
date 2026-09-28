@@ -10,27 +10,45 @@ use std::{
     time::Duration,
 };
 
+/// How Home is presented. `Launch` starts the Electron shell from this
+/// checkout. `ServeOnly` is used by the packaged app: the app's own Electron
+/// process already exists and reads the origin from our JSON line, and it
+/// closes our stdin when it quits.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum HomeShell {
+    Launch { windowed: bool },
+    ServeOnly,
+}
+
 pub async fn home(
-    windowed: bool,
+    shell_mode: HomeShell,
     json: bool,
     data_dir: &Path,
     godot_override: Option<PathBuf>,
     godot_timeout: Duration,
     platform: &str,
 ) -> Result<()> {
-    let root = checkout_root().context("could not find runtimes/web/home from this checkout")?;
+    let root = home_root().context(
+        "could not find runtimes/web/home; set GIGACOUCH_ROOT or run from this checkout",
+    )?;
     let home_dir = root.join("runtimes/web/home");
     let sdk = root.join("sdk");
     let blob = root.join("runtimes/web/examples/blob-island/web");
     let profiles = data_dir.join("home-profiles.json");
     let session = data_dir.join("home-session");
-    let shell =
-        shell_dir().context("could not find runtimes/web/shell/main.js from this checkout")?;
-    let electron = electron_binary().ok_or_else(|| {
-        anyhow!(
-            "the web-1 browser shell is not installed. Run python3 runtimes/web/fetch_shell.py on this Mac. The couch CLI does not download it"
-        )
-    })?;
+    let launch = match shell_mode {
+        HomeShell::Launch { windowed } => {
+            let shell = shell_dir()
+                .context("could not find runtimes/web/shell/main.js from this checkout")?;
+            let electron = electron_binary().ok_or_else(|| {
+                anyhow!(
+                    "the web-1 browser shell is not installed. Run python3 runtimes/web/fetch_shell.py on this Mac. The couch CLI does not download it"
+                )
+            })?;
+            Some((shell, electron, windowed))
+        }
+        HomeShell::ServeOnly => None,
+    };
     let mut discovery = couch_runtime::Discovery::system(godot_override);
     discovery.probe_timeout = godot_timeout;
     let report = discovery.check().await;
@@ -55,18 +73,37 @@ pub async fn home(
             install_root: data_dir.join("installed"),
         }),
     )?;
-    announce(&host, "Home", Some(&electron), json)?;
-    let mut child = Command::new(&electron)
-        .arg(&shell)
-        .env("GIGACOUCH_ORIGIN", host.origin())
-        .env("GIGACOUCH_TITLE", "Giga Couch")
-        .env("GIGACOUCH_WINDOWED", if windowed { "1" } else { "0" })
-        .spawn()
-        .with_context(|| format!("could not start {}", electron.display()))?;
+    announce(
+        &host,
+        "Home",
+        launch.as_ref().map(|(_, electron, _)| electron.as_path()),
+        json,
+    )?;
+    let mut child = match &launch {
+        Some((shell, electron, windowed)) => Some(
+            Command::new(electron)
+                .arg(shell)
+                .env("GIGACOUCH_ORIGIN", host.origin())
+                .env("GIGACOUCH_TITLE", "Giga Couch")
+                .env("GIGACOUCH_WINDOWED", if *windowed { "1" } else { "0" })
+                .spawn()
+                .with_context(|| format!("could not start {}", electron.display()))?,
+        ),
+        None => None,
+    };
+    let parent_gone = child.is_none().then(watch_stdin_close);
     let mut running: Option<Child> = None;
     let status = loop {
-        if let Some(status) = child.try_wait()? {
-            break status;
+        if let Some(shell) = child.as_mut() {
+            if let Some(status) = shell.try_wait()? {
+                break Some(status);
+            }
+        } else if host.game_quit()
+            || parent_gone
+                .as_ref()
+                .is_some_and(|gone| gone.load(std::sync::atomic::Ordering::SeqCst))
+        {
+            break None;
         }
         if let Some(game) = running.as_mut()
             && game.try_wait()?.is_some()
@@ -93,10 +130,34 @@ pub async fn home(
         let _ = game.kill();
         let _ = game.wait();
     }
-    if !status.success() {
+    if let Some(status) = status
+        && !status.success()
+    {
         anyhow::bail!("browser shell exited with {status}");
     }
     Ok(())
+}
+
+/// Sets the flag once stdin reaches end of file. The packaged app holds our
+/// stdin open for its whole life, so this also catches a crashed shell.
+fn watch_stdin_close() -> std::sync::Arc<std::sync::atomic::AtomicBool> {
+    let gone = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let flag = std::sync::Arc::clone(&gone);
+    thread::spawn(move || {
+        let _ = io::copy(&mut io::stdin().lock(), &mut io::sink());
+        flag.store(true, std::sync::atomic::Ordering::SeqCst);
+    });
+    gone
+}
+
+/// The packaged app sets GIGACOUCH_ROOT to its bundled Home files. A
+/// checkout build finds them by walking up to runtimes/web/shell.
+fn home_root() -> Option<PathBuf> {
+    if let Some(raw) = std::env::var_os("GIGACOUCH_ROOT") {
+        let root = PathBuf::from(raw);
+        return root.join("runtimes/web/home").is_dir().then_some(root);
+    }
+    checkout_root()
 }
 
 struct LaunchPaths<'a> {

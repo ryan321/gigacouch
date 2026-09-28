@@ -32,7 +32,35 @@ The couch front door is separate from a game. It asks who's playing, then shows 
 ./target/debug/couch web-home --windowed
 ```
 
-Escape during a game returns to Home.
+Escape during a game returns to Home. Escape on the shelf leaves full screen. Cmd+Q quits on the Mac, and Ctrl+Q quits elsewhere.
+
+## Mac app
+
+```bash
+python3 runtimes/web/fetch_shell.py   # once; writes Electron to /Volumes/External
+pnpm build                            # app and disk image
+pnpm build:app                        # app only, no disk image
+pnpm launch                           # open the built app full screen
+pnpm launch:windowed                  # run it in a window, logs in this terminal
+```
+
+The pnpm scripts in the root `package.json` have no dependencies. `pnpm build` runs `python3 scripts/build_browser.py`.
+
+The build downloads nothing. It copies that Electron to `/Volumes/External/projects/gigacouch-browser/stage/Giga Couch.app`, renames it, and gives it the Giga Couch tile icon. It bundles the `couch` host, this `shell/`, Home, and Blob Island. It then signs the app ad hoc and writes `GigaCouch-<version>-mac-arm64.dmg` beside it. The Godot samples under `sdk/` are not bundled. Creator projects registered on the Mac still appear.
+
+On launch the app runs its bundled `couch web-home --serve-only` and reads the origin from its JSON line. It points Home at `https://gigacouch-platform.fly.dev` unless `GIGACOUCH_PLATFORM` is set. Quitting the app closes the host's stdin, which stops the host. Chromium's own cache goes under `Application Support/GigaCouch/browser`.
+
+### Stats overlay
+
+View > Stats Overlay, or Cmd+I (Ctrl+I elsewhere), shows a panel over the shelf or the game. The app remembers the choice. The panel shows:
+
+- Frame rate, time per frame, and the 1% low, with a frame-time line against the display's frame budget. The preload times frames from Electron's isolated world, so the game page cannot see or reach it.
+- GPU load and GPU memory in use, CPU load, and memory in use. On a Mac these come from the IORegistry, `vm_stat`, and the memory pressure level. Elsewhere GPU load comes from `nvidia-smi` when an NVIDIA driver provides it; that path has not been run on Windows or Linux yet.
+- The GPU and graphics backend, whether WebGL and WebGPU run on the GPU, the processor, display resolution and refresh rate, heat, and power source.
+- Controllers. Connected pads come from Chromium's gamepad list, which only includes a pad after one of its buttons is pressed. A Mac controller paired over Bluetooth but not yet pressed shows as "press a button", with its battery level. Known pads that are not connected come from Bluetooth pairings and from `controllers.json`, which remembers pads this app has seen.
+- Warnings, each with a label: software rendering, a display under 55 Hz, heat, memory pressure, and running on battery.
+
+The ad hoc signature only works on this Mac. Another Mac blocks the app until it is signed with a Developer ID and notarized.
 
 ## Run Blob Island
 
@@ -49,7 +77,7 @@ cargo build --locked -p couch-cli
 ./target/debug/couch web-run --package runtimes/web/examples/blob-island --windowed
 ```
 
-Without `--windowed` the shell is a fullscreen kiosk. `couch web-serve` prints the loopback origin and does not open a window. The first launch can print `sandbox_extension_issue_file failed` for a helper Resources directory; the window still opens.
+Without `--windowed` the shell opens in normal full screen, so app switching and Force Quit still work. `GIGACOUCH_KIOSK=1` asks for Electron's locked kiosk instead. On macOS kiosk mode blocks app switching and Force Quit, so use it only on a dedicated couch machine. `couch web-serve` prints the loopback origin and does not open a window. The first launch can print `sandbox_extension_issue_file failed` for a helper Resources directory; the window still opens.
 
 Enter or the south face joins. Space or the south face jumps. Backspace leaves immediately. Holding the east face for 1.25 seconds leaves. Disconnecting a pad frees its slot. The page reads `GigaCouch.input` and does not use the Gamepad API as the platform source; `input.js` stubs `navigator.getGamepads` after the host has read the devices.
 

@@ -534,8 +534,13 @@ fn pck_is_playable(path: &Path) -> bool {
 }
 
 pub async fn shelf_catalog(sdk: &Path, data_dir: &Path) -> Result<Vec<Value>> {
-    let builtin: Vec<Value> =
-        serde_json::from_str(&fs::read_to_string(sdk.join("launcher/games.json"))?)?;
+    // The packaged browser ships without the SDK samples, so a missing list
+    // means no built-in Godot games rather than an empty shelf.
+    let builtin: Vec<Value> = match fs::read_to_string(sdk.join("launcher/games.json")) {
+        Ok(text) => serde_json::from_str(&text)?,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Vec::new(),
+        Err(error) => return Err(error.into()),
+    };
     let mut games = Vec::new();
     let mut used = std::collections::HashSet::new();
     for mut game in builtin {

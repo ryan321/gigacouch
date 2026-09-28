@@ -6,6 +6,7 @@ A controller-first platform for playing and privately sharing Godot games on you
 - [Game Development Kit: contents, workflow, and delivery plan](GDK.md)
 - [What the platform and GDK provide: code, scripts, and instructions](docs/platform-and-gdk.md)
 - [Giga Couch player app: TV library, controllers, accounts and social](docs/giga-couch-app.md)
+- [Giga Couch Game Browser: couch play for web games, and why it is better than Chrome](docs/game-browser.md)
 - [Runtime architecture](docs/GIGACOUCH_ARCHITECTURE_v2.md)
 - [Technical architecture and stack](TECH_STACK.md)
 - [V1 implementation plan](IMPLEMENTATION_PLAN.md)

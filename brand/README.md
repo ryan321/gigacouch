@@ -9,7 +9,7 @@ Source artwork, fonts, and the shared design tokens for every surface. Do not pu
 | `mark.png` | App icon and dark UI (Game Player splash, Setup rail, library, Creator Hub). Transparent mint couch. |
 | `logo.png` | Wordmark for light surfaces. Navy type plus mark. |
 
-`scripts/branding.py` builds `AppIcon.icns` from `mark.png` during `build_player.py` and `build_gdk.py`. Godot projects keep a copy of the mark next to their scenes so `res://` loads work.
+`scripts/branding.py` builds `AppIcon.icns` from `mark.png` during `build_player.py` and `build_gdk.py`. The Game Browser (`build_browser.py`) uses a macOS tile instead: the mark is redrawn in exact mint and navy, which drops the faint white specks around the arm gaps, and placed on a rounded rail-gradient tile. That step needs Pillow. Godot projects keep a copy of the mark next to their scenes so `res://` loads work.
 
 ## Fonts (`brand/fonts/`)
 

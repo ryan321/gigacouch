@@ -95,6 +95,10 @@ enum Command {
         /// Open a window instead of fullscreen kiosk.
         #[arg(long)]
         windowed: bool,
+        /// Serve Home and print its origin without starting a shell. The
+        /// packaged app uses this and closes stdin when it quits.
+        #[arg(long, conflicts_with = "windowed")]
+        serve_only: bool,
         /// Platform API. Home still opens if this server is not running.
         #[arg(long, default_value = "http://127.0.0.1:8787")]
         platform: String,
@@ -411,9 +415,19 @@ async fn run(cli: &Cli) -> Result<(Value, String)> {
             );
             Ok((serde_json::to_value(result)?, human))
         }
-        Command::WebHome { windowed, platform } => {
+        Command::WebHome {
+            windowed,
+            serve_only,
+            platform,
+        } => {
             web::home(
-                *windowed,
+                if *serve_only {
+                    web::HomeShell::ServeOnly
+                } else {
+                    web::HomeShell::Launch {
+                        windowed: *windowed,
+                    }
+                },
                 cli.json,
                 &data_dir(cli)?,
                 cli.godot.clone(),

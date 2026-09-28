@@ -1,0 +1,11 @@
+{
+  "name": "gigacouch",
+  "private": true,
+  "description": "Task shortcuts for the Giga Couch Game Browser. No dependencies; pnpm only runs these scripts.",
+  "scripts": {
+    "build": "python3 scripts/build_browser.py",
+    "build:app": "python3 scripts/build_browser.py --no-dmg",
+    "launch": "APP='/Volumes/External/projects/gigacouch-browser/stage/Giga Couch.app'; test -d \"$APP\" || { echo 'Giga Couch.app is not built. Run pnpm build first.' >&2; exit 1; }; open \"$APP\"",
+    "launch:windowed": "APP='/Volumes/External/projects/gigacouch-browser/stage/Giga Couch.app'; test -d \"$APP\" || { echo 'Giga Couch.app is not built. Run pnpm build first.' >&2; exit 1; }; GIGACOUCH_WINDOWED=1 \"$APP/Contents/MacOS/Giga Couch\""
+  }
+}

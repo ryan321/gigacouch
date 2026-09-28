@@ -12,9 +12,12 @@ The checklist below is the existing Godot prototype. That prototype stays in the
 - [x] Save read/write on the host (256 KiB, atomic replace) and `GigaCouch.lifecycle.quit()`.
 - [x] Blob Island sample and `couch web-serve` / `couch web-run`. The shell download is `python3 runtimes/web/fetch_shell.py` and is not invoked by tests or the CLI.
 - [x] `couch platform` serves accounts, the master library, and package downloads. `couch web-home` signs in with a device code, then can download Blob Island. The server database is local to that process; it is not Neon yet. Godot titles are listed and still launch from the local projects.
+- [x] Mac Game Browser app: `python3 scripts/build_browser.py` wraps the downloaded Electron as `Giga Couch.app` with the tile icon, the bundled host, and the Home files, and packs a disk image on `/Volumes/External`. The app starts `couch web-home --serve-only` itself. It is signed ad hoc, so only this Mac opens it; Developer ID signing and notarization are open.
+- [x] Stats overlay in the shell (Cmd+I): frame rate and 1% low, GPU/CPU/memory load, GPU and display details, heat, power, and connected plus known controllers. Checked on this Mac with an Xbox pad paired but not pressed; a pad listed by Chromium, Windows, and Linux readings are untested.
+- [ ] Windows and Linux app builds in CI, and auto-update.
 - [ ] Windows shell, graphics-API launch gate, OS sandbox proof, and the pinned CEF/Chromium build. A package test does not prove those.
 
-Verified on this Mac: `cargo fmt --all -- --check`, `cargo test --workspace --locked`, and `cargo clippy --workspace --all-targets --locked -- -D warnings`. `couch web-run --windowed` opened Blob Island in the Electron shell; Enter joined player 1 and the on-screen hint came from the bridge. That does not verify a physical controller, WebGPU, Windows, or the sandbox.
+Verified on this Mac: `cargo fmt --all -- --check`, `cargo test --workspace --locked`, and `cargo clippy --workspace --all-targets --locked -- -D warnings`. `couch web-run --windowed` opened Blob Island in the Electron shell; Enter joined player 1 and the on-screen hint came from the bridge. That does not verify a physical controller, WebGPU, Windows, or the sandbox. The built `Giga Couch.app` launched windowed on this Mac, started its bundled host, showed Home's sign-in screen, and left no host process after quitting. It was not opened from the disk image on another Mac.
 
 ## Public landing page
 

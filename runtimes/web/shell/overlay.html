@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'">
+<title>Stats</title>
+<style>
+  /* A heads-up display over a running game: always the dark brand surface,
+     whatever the system theme, so it reads the same over any scene. */
+  :root {
+    --bg: rgba(16, 23, 34, 0.9);
+    --line: #2d3b4b;
+    --ink: #f2f5f8;
+    --muted: #a0afbf;
+    --mint: #8ce8be;
+    --track: rgba(140, 232, 190, 0.18);
+    --warning: #fab219;
+    --critical: #ec835a;
+  }
+  * { box-sizing: border-box; margin: 0; }
+  html, body { background: transparent; overflow: hidden auto; scrollbar-width: none; }
+  body::-webkit-scrollbar { display: none; }
+  body {
+    font: 12px/1.35 Inter, -apple-system, "Segoe UI", system-ui, sans-serif;
+    color: var(--ink);
+    user-select: none;
+    cursor: default;
+  }
+  .panel {
+    width: 300px;
+    padding: 14px 16px 14px;
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+    backdrop-filter: blur(12px);
+  }
+  .top { display: flex; align-items: baseline; justify-content: space-between; }
+  .fps { font-size: 40px; font-weight: 650; letter-spacing: -0.02em; line-height: 1; }
+  .fps small { font-size: 13px; font-weight: 500; color: var(--muted); margin-left: 4px; letter-spacing: 0; }
+  .frame { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+  .frame b { color: var(--ink); font-weight: 600; }
+  svg { display: block; width: 100%; height: 44px; margin: 10px 0 4px; }
+  .caption { color: var(--muted); font-size: 11px; display: flex; justify-content: space-between; }
+  .meters { margin-top: 12px; display: grid; gap: 9px; }
+  .meter .row { display: flex; justify-content: space-between; margin-bottom: 4px; }
+  .meter .row span:last-child { font-variant-numeric: tabular-nums; }
+  .meter .label { color: var(--muted); }
+  .bar { height: 6px; border-radius: 3px; background: var(--track); overflow: hidden; }
+  .bar i { display: block; height: 100%; border-radius: 3px; background: var(--mint); transition: width 300ms; }
+  .bar.warning i { background: var(--warning); }
+  .bar.critical i { background: var(--critical); }
+  dl { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; }
+  dt { color: var(--muted); }
+  dd { text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .alerts { margin-top: 10px; display: grid; gap: 6px; }
+  .alert { display: flex; gap: 8px; align-items: flex-start; padding: 7px 9px; border-radius: 8px; background: rgba(250, 178, 25, 0.1); }
+  .alert.critical { background: rgba(236, 131, 90, 0.12); }
+  .alert svg { width: 14px; height: 14px; margin: 1px 0 0; flex: none; }
+  .alert b { font-weight: 600; }
+  .alert p { color: var(--muted); }
+  .pads { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+  .pads h2 { font-size: 12px; font-weight: 600; display: flex; justify-content: space-between; margin-bottom: 6px; }
+  .pads h2 span { color: var(--muted); font-weight: 400; }
+  .pads h3 { font-size: 11px; font-weight: 500; color: var(--muted); margin: 8px 0 4px; }
+  .pad { display: flex; align-items: center; gap: 8px; padding: 3px 0; }
+  .pad .slot { flex: none; width: 20px; height: 20px; border-radius: 6px; display: grid; place-items: center; font-size: 11px; font-weight: 650; background: var(--mint); color: #101722; }
+  .pad.off .slot { background: transparent; border: 1px dashed var(--line); color: var(--muted); }
+  .pad .text { flex: 1; min-width: 0; }
+  .pad .name { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pad .note { display: block; color: var(--muted); font-size: 11px; }
+  .pad .note:empty { display: none; }
+  .pads .empty { color: var(--muted); }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<div class="panel" id="panel">
+  <div class="top">
+    <div class="fps"><span id="fps">–</span><small>fps</small></div>
+    <div class="frame"><div><b id="ms">–</b> ms per frame</div><div>1% low <b id="low">–</b> fps</div></div>
+  </div>
+  <svg id="spark" viewBox="0 0 268 44" preserveAspectRatio="none" aria-label="Frame times, last few seconds"></svg>
+  <div class="caption"><span>Frame time</span><span id="budget"></span></div>
+
+  <div class="meters">
+    <div class="meter" id="gpu-meter"><div class="row"><span class="label">GPU load</span><span id="gpu-load"></span></div><div class="bar"><i></i></div></div>
+    <div class="meter" id="cpu-meter"><div class="row"><span class="label">CPU load</span><span id="cpu-load"></span></div><div class="bar"><i></i></div></div>
+    <div class="meter" id="ram-meter"><div class="row"><span class="label">Memory</span><span id="ram"></span></div><div class="bar"><i></i></div></div>
+  </div>
+
+  <dl id="facts"></dl>
+  <div class="pads">
+    <h2>Controllers <span id="pad-count"></span></h2>
+    <div id="pads-on"></div>
+    <div id="pads-known-box"><h3>Known, not connected</h3><div id="pads-known"></div></div>
+  </div>
+  <div class="alerts" id="alerts"></div>
+</div>
+<script>
+  const GB = 1024 ** 3;
+  const $ = (id) => document.getElementById(id);
+  const gb = (bytes) => (bytes / GB).toFixed(bytes >= 10 * GB ? 0 : 1) + " GB";
+  const WARN_ICON = '<svg viewBox="0 0 14 14" aria-hidden="true"><path d="M7 1.5 13 12.5H1Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/><path d="M7 5.5v3.2M7 10.2v.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>';
+
+  function meter(id, percent, text) {
+    const box = $(id);
+    box.hidden = percent == null;
+    if (percent == null) return;
+    const bar = box.querySelector(".bar");
+    bar.className = "bar" + (percent >= 95 ? " critical" : percent >= 85 ? " warning" : "");
+    bar.querySelector("i").style.width = Math.min(100, Math.max(0, percent)) + "%";
+    box.querySelector(".row span:last-child").textContent = text;
+  }
+
+  // Frame times as one mint line against the display's frame budget.
+  function spark(frames, budget) {
+    const svg = $("spark");
+    const w = 268, h = 44, pad = 2;
+    if (!frames.length) { svg.innerHTML = ""; return; }
+    const ceiling = Math.max(budget ? budget * 2 : 0, ...frames, 1);
+    const y = (ms) => h - pad - (Math.min(ms, ceiling) / ceiling) * (h - pad * 2);
+    const step = w / Math.max(frames.length - 1, 1);
+    const points = frames.map((ms, i) => `${(i * step).toFixed(1)},${y(ms).toFixed(1)}`).join(" ");
+    const guide = budget
+      ? `<line x1="0" x2="${w}" y1="${y(budget)}" y2="${y(budget)}" stroke="#a0afbf" stroke-opacity=".5" stroke-dasharray="3 3" stroke-width="1" vector-effect="non-scaling-stroke"/>`
+      : "";
+    svg.innerHTML = guide +
+      `<polyline points="${points}" fill="none" stroke="#8ce8be" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" vector-effect="non-scaling-stroke"/>`;
+  }
+
+  function when(day) {
+    if (!day) return "";
+    const days = Math.round((Date.parse(new Date().toISOString().slice(0, 10)) - Date.parse(day)) / 86400000);
+    return days <= 0 ? "today" : days === 1 ? "yesterday" : days < 30 ? `${days} days ago` : day;
+  }
+
+  function padRow(slot, name, note, off) {
+    const row = document.createElement("div");
+    row.className = "pad" + (off ? " off" : "");
+    row.innerHTML = '<span class="slot"></span><span class="text"><span class="name"></span><span class="note"></span></span>';
+    row.querySelector(".slot").textContent = slot;
+    row.querySelector(".name").textContent = name;
+    row.querySelector(".name").title = name;
+    row.querySelector(".note").textContent = note || "";
+    return row;
+  }
+
+  function renderPads(p) {
+    const on = $("pads-on");
+    on.innerHTML = "";
+    const connected = (p && p.connected) || [];
+    const waiting = (p && p.waiting) || [];
+    $("pad-count").textContent = connected.length ? `${connected.length} ready` : "";
+    for (const pad of connected) {
+      const notes = [pad.battery ? `battery ${pad.battery}` : null, pad.standard ? null : "custom layout"].filter(Boolean);
+      on.append(padRow(pad.slot, pad.name, notes.join(" · ")));
+    }
+    for (const pad of waiting) {
+      on.append(padRow("·", pad.name, ["press a button", pad.battery ? `battery ${pad.battery}` : null].filter(Boolean).join(" · "), true));
+    }
+    if (!connected.length && !waiting.length) {
+      const empty = document.createElement("p");
+      empty.className = "empty";
+      empty.textContent = "None yet. Press a button on a controller.";
+      on.append(empty);
+    }
+    const known = (p && p.known) || [];
+    $("pads-known-box").hidden = !known.length;
+    $("pads-known").innerHTML = "";
+    for (const pad of known.slice(0, 6)) {
+      const note = pad.lastSeen ? `seen ${when(pad.lastSeen)}` : pad.source;
+      $("pads-known").append(padRow("–", pad.name + (pad.most > 1 ? ` ×${pad.most}` : ""), note, true));
+    }
+  }
+
+  window.gigacouchRender = (d) => {
+    renderPads(d.pads);
+    const hz = d.display && d.display.hz;
+    $("fps").textContent = d.fps == null ? "–" : Math.round(d.fps);
+    $("ms").textContent = d.frameMs == null ? "–" : d.frameMs.toFixed(1);
+    $("low").textContent = d.lowFps == null ? "–" : Math.round(d.lowFps);
+    const budget = hz ? 1000 / hz : null;
+    $("budget").textContent = budget ? `dashed line: ${budget.toFixed(1)} ms for ${hz} Hz` : "";
+    spark(d.frames || [], budget);
+
+    const gpuText = d.gpuLoad == null ? "" :
+      `${d.gpuLoad}%` + (d.gpuMemory ? ` · ${gb(d.gpuMemory)}${d.gpuMemoryTotal ? " of " + gb(d.gpuMemoryTotal) : ""} in use` : "");
+    meter("gpu-meter", d.gpuLoad, gpuText);
+    meter("cpu-meter", d.cpuLoad, d.cpuLoad == null ? "" : `${d.cpuLoad}% · Giga Couch ${d.appCpu}%`);
+    const ramPercent = d.memoryUsed && d.totalMemory ? Math.round((100 * d.memoryUsed) / d.totalMemory) : null;
+    meter("ram-meter", ramPercent, ramPercent == null ? "" : `${gb(d.memoryUsed)} of ${gb(d.totalMemory)}`);
+
+    const facts = [
+      ["Graphics", [d.gpu, d.backend].filter(Boolean).join(" · ")],
+      ["Web graphics", d.hardware ? ["WebGL", d.webgpu ? "WebGPU" : null].filter(Boolean).join(", ") : "Software only"],
+      ["Processor", d.cpu ? `${d.cpu} · ${d.cores} cores` : null],
+      ["Display", d.display ? [`${d.display.width}×${d.display.height}`, hz ? `${hz} Hz` : null].filter(Boolean).join(" · ") : null],
+      ["Giga Couch memory", d.appMemory ? gb(d.appMemory) : null],
+      ["Heat", d.thermal],
+      ["Power", d.battery ? "Battery" : "Plugged in"],
+    ].filter(([, value]) => value);
+    $("facts").innerHTML = "";
+    for (const [label, value] of facts) {
+      const dt = document.createElement("dt"); dt.textContent = label;
+      const dd = document.createElement("dd"); dd.textContent = value; dd.title = value;
+      $("facts").append(dt, dd);
+    }
+
+    const alerts = [];
+    if (!d.hardware) alerts.push(["critical", "Software rendering", "Games draw on the processor instead of the GPU."]);
+    if (hz && hz < 55) alerts.push(["warning", `Display runs at ${hz} Hz`, `Games cannot show more than ${hz} frames per second.`]);
+    if (d.thermal === "serious" || d.thermal === "critical") alerts.push(["critical", "Running hot", "The computer is slowing itself down to cool off."]);
+    else if (d.thermal === "fair") alerts.push(["warning", "Warming up", "The computer may slow down soon."]);
+    if (d.pressure === "critical") alerts.push(["critical", "Out of memory", "Close other apps; games will stutter."]);
+    else if (d.pressure === "warning") alerts.push(["warning", "Memory is tight", "Closing other apps can help."]);
+    if (d.battery) alerts.push(["warning", "On battery", "The computer may lower performance to save power."]);
+    $("alerts").innerHTML = "";
+    for (const [level, title, detail] of alerts) {
+      const box = document.createElement("div");
+      box.className = "alert " + level;
+      box.style.color = level === "critical" ? "var(--critical)" : "var(--warning)";
+      box.innerHTML = WARN_ICON + "<div><b></b><p></p></div>";
+      box.querySelector("b").textContent = title;
+      box.querySelector("b").style.color = "var(--ink)";
+      box.querySelector("p").textContent = detail;
+      $("alerts").append(box);
+    }
+    return Math.ceil($("panel").getBoundingClientRect().height);
+  };
+</script>
+</body>
+</html>
