@@ -24,6 +24,22 @@ A web game remains one package with two ways to run it. On the public site it us
 
 ## What is better than Chrome
 
+### Phones as controllers
+
+Everyone in the room can play, not just the people holding pads. The shelf shows a QR code. A phone on the same Wi-Fi scans it, opens a touch pad, and joins as a player. There is no app to install and no account to make.
+
+A Chrome tab cannot do this. A web page cannot accept connections from other devices on the network, so a game in a tab only has the pads plugged into that computer. The Game Browser's host listens on the Wi-Fi and turns each phone into another player.
+
+Party sites such as Jackbox and AirConsole also use phones, but they send every button press through their own servers. The Game Browser keeps it in the room:
+
+* It works with the internet down, as long as the Wi-Fi is up.
+* A press crosses the room, not a data center, so there is less delay.
+* Extra players cost nothing to serve, so there is no limit on phones or players. A game can set a maximum in `gigacouch.json`. Without one, everyone who joins plays, and party games with dozens of people are possible.
+* A web game written for ordinary gamepads gets phone players with no changes. A game picks one of six phone layouts: stick and two buttons, d-pad, four buttons, twin sticks, one big button, or four answer buttons for quizzes.
+* Every phone has a menu to go back to the shelf, leave the game, or change its name.
+
+The limits are real. Phones must be on the same Wi-Fi as the computer, and networks that keep devices apart, such as many guest networks, block them. A game played on gigacouch.com in plain Chrome does not get phone players; that needs a relay through gigacouch.com, which is not built. Godot games do not receive phone input yet. The host has been tested with 40 simulated phones on one computer, not with dozens of real phones on one Wi-Fi network. A typical home router is likely the practical ceiling, somewhere around 30 to 60 busy phones.
+
 ### On the TV
 
 The shelf fills the screen, one game at a time, and quit returns to the shelf. The stick or pad moves, and the south button chooses. Type, cards, and buttons are sized for a couch. The app stays on the HDMI display, and a game does not lose the screen because another window took focus.
@@ -65,7 +81,6 @@ These are not built or promised. They are candidates for making the Game Browser
 
 ### Biggest differentiators
 
-* **Phones as controllers.** The shelf shows a QR code. A phone on the same Wi-Fi opens a pad page served by the host and appears as another pad. Nobody sits out because the house has only two controllers.
 * **Remote play with a friend.** The host streams the TV picture over WebRTC to a friend's browser. The friend's input comes back as another local pad, so the game does not know that player is remote.
 * **A guide-button overlay.** The home button pauses the game by holding its frame loop and muting it. The overlay offers resume, quit to shelf, volume, player swap, and screenshot. A game cannot block it.
 * **One lobby for every game.** Before launch, the host runs a shared join screen where each person picks a name and a color. The game receives that roster instead of building its own join flow, and each pad is already tied to a person's save.
@@ -91,12 +106,12 @@ These are not built or promised. They are candidates for making the Game Browser
 * **A device hint.** The host tells the game the GPU tier, the TV-safe area, and the pad count, so it can pick quality settings without guessing.
 * **Signed updates in the background.** Download only the changed files, and check the package before launch so what runs matches what was approved.
 
-The strongest first set is phones as controllers, the guide-button overlay, and the shared lobby. Together they make a party game playable by everyone on the couch with no extra hardware. Remote play is the most striking idea and also the most work.
+Phones as controllers are built; see "What is better than Chrome". The strongest next set is the guide-button overlay and the shared lobby. Together with phones, they make a party game playable by everyone on the couch with no extra hardware. Remote play is the most striking idea and also the most work.
 
 ## Where this stands
 
 The Mac shell already runs full screen and can play a web game while the host reads the pads. Blob Island is the sample. Home can list a Godot game and open it in its own window. Saves for a web game are already atomic JSON files, capped at 256 KiB, owned by the host.
 
-`python3 scripts/build_browser.py` builds a Mac `Giga Couch.app` and disk image with the couch-tile icon. The app starts its own host, so it no longer needs the command line. It is signed only for this Mac. Home shows a QR code, and a phone on the same Wi-Fi becomes a controller: a floating stick with A and B. Cmd+I shows a stats overlay with frame rate, GPU, CPU and memory load, the graphics card, the display's refresh rate, and connected and known controllers.
+`python3 scripts/build_browser.py` builds a Mac `Giga Couch.app` and disk image with the couch-tile icon. The app starts its own host, so it no longer needs the command line. It is signed only for this Mac. Home shows a QR code, and a phone on the same Wi-Fi becomes a controller in the layout the open game asks for. Cmd+I shows a stats overlay with frame rate, GPU, CPU and memory load, the graphics card, the display's refresh rate, and connected and known controllers.
 
 Still ahead of a promise creators can rely on: Developer ID signing and notarization, Windows and Linux builds, Play on gigacouch.com itself, the app as a window onto that site, the launch check that refuses a machine with no hardware GPU, offline downloads of the catalog, and a tested session with controllers and WebGPU on both systems. The current sample moves only when the Giga Couch page API is present, and inside the shell the normal gamepad list is replaced. The shelf described above feeds that list with the cleaned-up pads instead, so the same game code runs on the website and in the app.
