@@ -72,7 +72,15 @@ impl Shelf {
 pub(crate) fn route(state: &State, method: &str, path: &str, body: &[u8]) -> Option<Reply> {
     let shelf = state.home.as_ref()?;
     match (method, path) {
-        ("GET", "/") | ("GET", "/index.html") => Some(serve_rooted(&shelf.root, "index.html")),
+        ("GET", "/") | ("GET", "/index.html") => {
+            // Back on the shelf: phones return to the default layout, and
+            // everyone who joins gets a slot again.
+            if let Some(hub) = &state.phones {
+                hub.set_layout(None);
+            }
+            state.session.lock().expect("session").set_limit(None);
+            Some(serve_rooted(&shelf.root, "index.html"))
+        }
         ("GET", "/home.js") => Some(serve_rooted(&shelf.root, "home.js")),
         ("GET", "/home.css") => Some(serve_rooted(&shelf.root, "home.css")),
         ("GET", fonts) if fonts.starts_with("/fonts/") => {
@@ -88,7 +96,28 @@ pub(crate) fn route(state: &State, method: &str, path: &str, body: &[u8]) -> Opt
         ("POST", "/__gigacouch/v1/home/play") => Some(play_game(shelf, body)),
         ("POST", "/__gigacouch/v1/account/begin") => Some(begin_account(shelf)),
         ("POST", "/__gigacouch/v1/library/download") => Some(download_game(shelf, body)),
-        ("GET", play) if play.starts_with("/play/") => Some(serve_play(shelf, play)),
+        ("GET", play) if play.starts_with("/play/") => {
+            let (reply, web_root) = serve_play(shelf, play);
+            if let Some(web_root) = web_root {
+                // A game page opened: its phone layout, and its player limit
+                // if it sets one.
+                let package = package_for(&web_root);
+                if let Some(hub) = &state.phones {
+                    hub.set_layout(Some(
+                        package
+                            .as_ref()
+                            .map(|package| package.phone_layout())
+                            .unwrap_or(crate::DEFAULT_PHONE_LAYOUT),
+                    ));
+                }
+                let limit = package
+                    .as_ref()
+                    .and_then(|package| package.players_max())
+                    .map(usize::from);
+                state.session.lock().expect("session").set_limit(limit);
+            }
+            Some(reply)
+        }
         _ => None,
     }
 }
@@ -463,9 +492,20 @@ fn add_profile(shelf: &Shelf, body: &[u8]) -> Reply {
     text_response(200, "application/json", br#"{"ok":true}"#.to_vec())
 }
 
-fn serve_play(shelf: &Shelf, path: &str) -> Reply {
+/// A game's package. The package file sits next to the game's web/ folder;
+/// a missing or invalid one means the defaults: stick-2 and no player limit.
+fn package_for(web_root: &Path) -> Option<crate::WebPackage> {
+    web_root
+        .parent()
+        .and_then(|dir| crate::WebPackage::read(dir).ok())
+}
+
+/// Serves a file of a game. Also returns the game's web root when the file is
+/// one of its pages, so the caller can switch phones to the game's layout.
+fn serve_play(shelf: &Shelf, path: &str) -> (Reply, Option<PathBuf>) {
     let rest = path.trim_start_matches("/play/");
     let (id, relative) = rest.split_once('/').unwrap_or((rest, ""));
+    let page = relative.is_empty() || relative.ends_with(".html");
     if let Some(link) = &shelf.account {
         let installed = link
             .lock()
@@ -479,18 +519,25 @@ fn serve_play(shelf: &Shelf, path: &str) -> Reply {
             } else {
                 relative
             };
-            return serve_rooted(&installed, relative);
+            let reply = serve_rooted(&installed, relative);
+            return (reply, page.then_some(installed));
         }
     }
     let Some(mount) = shelf.mounts.iter().find(|mount| mount.id == id) else {
-        return text_response(404, "text/plain; charset=utf-8", b"not found".to_vec());
+        return (
+            text_response(404, "text/plain; charset=utf-8", b"not found".to_vec()),
+            None,
+        );
     };
     let relative = if relative.is_empty() {
         "index.html"
     } else {
         relative
     };
-    serve_rooted(&mount.web_root, relative)
+    (
+        serve_rooted(&mount.web_root, relative),
+        page.then(|| mount.web_root.clone()),
+    )
 }
 
 fn load_book(path: &Path) -> Book {

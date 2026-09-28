@@ -7,14 +7,35 @@ use std::{
     path::{Component, Path},
 };
 
-pub const MAX_PLAYERS: u8 = 16;
+/// Built-in phone controller layouts. The phone page draws each one; see
+/// `assets/pad.js`. Every layout maps onto the same five buttons and two
+/// sticks the host gives every player.
+pub const PHONE_LAYOUTS: &[&str] = &[
+    "stick-2",
+    "dpad-2",
+    "stick-4",
+    "twin-stick",
+    "one-button",
+    "quiz-4",
+];
+
+/// The layout a phone shows on the shelf and in games that name none.
+pub const DEFAULT_PHONE_LAYOUT: &str = "stick-2";
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Players {
-    min: u8,
-    max: u8,
+    min: u16,
+    /// Optional. Without it, everyone who joins gets to play.
+    #[serde(default)]
+    max: Option<u16>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Phone {
+    layout: String,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -28,6 +49,8 @@ struct RawPackage {
     entrypoint: String,
     gigacouch_api: String,
     players: Players,
+    #[serde(default)]
+    phone: Option<Phone>,
 }
 
 #[derive(Debug, Clone)]
@@ -71,8 +94,18 @@ impl WebPackage {
         &self.raw.title
     }
 
-    pub fn players_max(&self) -> u8 {
+    /// The most players this game allows, or `None` for no limit.
+    pub fn players_max(&self) -> Option<u16> {
         self.raw.players.max
+    }
+
+    /// The phone layout this game asks for, or the default.
+    pub fn phone_layout(&self) -> &str {
+        self.raw
+            .phone
+            .as_ref()
+            .map(|phone| phone.layout.as_str())
+            .unwrap_or(DEFAULT_PHONE_LAYOUT)
     }
 
     pub fn web_relative_entry(&self) -> &str {
@@ -111,12 +144,17 @@ impl WebPackage {
         if raw.gigacouch_api != "1" {
             return Err(Error::Invalid("gigacouch_api must be \"1\"".into()));
         }
-        if raw.players.min == 0
-            || raw.players.max > MAX_PLAYERS
-            || raw.players.min > raw.players.max
+        if raw.players.min == 0 || raw.players.max.is_some_and(|max| raw.players.min > max) {
+            return Err(Error::Invalid(
+                "players must satisfy 1 <= min, and min <= max when max is set".into(),
+            ));
+        }
+        if let Some(phone) = &raw.phone
+            && !PHONE_LAYOUTS.contains(&phone.layout.as_str())
         {
             return Err(Error::Invalid(format!(
-                "players must satisfy 1 <= min <= max <= {MAX_PLAYERS}"
+                "phone.layout must be one of {}",
+                PHONE_LAYOUTS.join(", ")
             )));
         }
         validate_entrypoint(&raw.entrypoint)?;

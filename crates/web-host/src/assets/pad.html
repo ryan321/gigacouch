@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#101722">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Giga Couch">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<link rel="manifest" href="/p/{{CODE}}/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/p/{{CODE}}/icon.png">
+<title>Giga Couch pad</title>
+<style>
+  :root {
+    --bg: #101722;
+    --panel: #1a2736;
+    --line: #2d3b4b;
+    --ink: #f2f5f8;
+    --muted: #a0afbf;
+    --mint: #8ce8be;
+    --amber: #f3c77d;
+    --blue: #9abef7;
+    --coral: #ec9a7a;
+  }
+  * { box-sizing: border-box; margin: 0; -webkit-tap-highlight-color: transparent; }
+  [hidden] { display: none !important; }
+  html, body {
+    height: 100%;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.3 -apple-system, "Segoe UI", Roboto, system-ui, sans-serif;
+    overflow: hidden;
+    overscroll-behavior: none;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+  }
+  body { display: flex; flex-direction: column; padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+  header { display: flex; align-items: center; gap: 10px; padding: 8px 14px; border-bottom: 1px solid var(--line); }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--amber); flex: none; }
+  .dot.on { background: var(--mint); }
+  .pill {
+    font: inherit; font-weight: 600; color: var(--ink);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 999px;
+    padding: 6px 14px; white-space: nowrap;
+  }
+  #name { max-width: 34vw; overflow: hidden; text-overflow: ellipsis; }
+  #status { flex: 1; color: var(--muted); font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #menu-open { color: var(--ink); font-size: 14px; }
+  #menu {
+    position: fixed; inset: 0; z-index: 6;
+    background: rgba(16, 23, 34, 0.86);
+    display: grid; place-items: center; padding: 16px;
+  }
+  #menu .sheet {
+    width: min(360px, 100%);
+    background: var(--panel); border: 1px solid var(--line); border-radius: 20px;
+    padding: 14px; display: grid; gap: 10px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.35);
+  }
+  #menu h2 { font-size: 15px; color: var(--muted); font-weight: 600; margin: 2px 4px 4px; }
+  #menu .item {
+    font: inherit; font-weight: 600; text-align: left; color: var(--ink);
+    background: var(--bg); border: 1px solid var(--line); border-radius: 14px;
+    padding: 12px 14px;
+  }
+  #menu .item small { display: block; font-weight: 400; font-size: 13px; color: var(--muted); margin-top: 2px; }
+  #menu .item.shelf { background: var(--mint); color: var(--bg); border-color: transparent; }
+  #menu .item.shelf small { color: rgba(16, 23, 34, 0.7); }
+  #menu .close { text-align: center; color: var(--muted); }
+  #player { flex: none; font-weight: 700; font-size: 15px; padding: 6px 12px; border-radius: 999px; background: var(--mint); color: var(--bg); }
+  #controls { flex: 1; position: relative; min-height: 0; }
+  .zone { position: absolute; }
+  .zone + .zone { border-left: 1px solid var(--line); }
+  .zone .hint { position: absolute; inset: 0; display: grid; place-items: center; color: var(--muted); font-size: 14px; text-align: center; padding: 16px; pointer-events: none; }
+  .base, .knob { position: absolute; border-radius: 50%; pointer-events: none; transform: translate(-50%, -50%); }
+  .base { width: 128px; height: 128px; border: 2px solid var(--line); background: rgba(154, 190, 247, 0.08); }
+  .knob { width: 64px; height: 64px; background: var(--blue); box-shadow: 0 6px 18px rgba(0,0,0,.4); }
+  .face {
+    position: absolute; border: none; border-radius: 50%;
+    display: grid; place-content: center; text-align: center;
+    font-weight: 700; line-height: 1; color: var(--bg);
+    box-shadow: 0 8px 24px rgba(0,0,0,.35), inset 0 -4px 0 rgba(0,0,0,.18);
+    transition: transform 60ms ease-out, filter 60ms ease-out;
+    z-index: 2;
+  }
+  .face.rect { border-radius: 22px; }
+  .face.small { border-radius: 999px; font-size: 14px !important; background: var(--panel) !important; color: var(--ink); border: 1px solid var(--line); box-shadow: none; }
+  .face small { display: block; font-size: 11px; font-weight: 600; margin-top: 4px; opacity: .75; }
+  .face.down { transform: scale(.94); filter: brightness(.85); }
+  .dpad { position: absolute; z-index: 2; }
+  .dpad b { position: absolute; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; }
+  .dpad b.on { background: var(--blue); }
+  /* Short landscape screens: a slimmer header leaves room for the controls. */
+  @media (max-height: 480px) {
+    header { padding: 4px 12px; gap: 8px; }
+    .pill { padding: 3px 11px; font-size: 14px; }
+    #player { padding: 3px 10px; font-size: 14px; }
+    #status { font-size: 13px; }
+  }
+  #tip {
+    display: flex; align-items: center; gap: 10px;
+    padding: 6px 12px; font-size: 13px; color: var(--ink);
+    background: rgba(154, 190, 247, 0.12); border-bottom: 1px solid var(--line);
+  }
+  #tip span { flex: 1; }
+  #tip button { font: inherit; font-weight: 600; color: var(--muted); background: none; border: none; padding: 4px 6px; }
+  #turn, #gone {
+    position: fixed; inset: 0; display: grid; place-content: center; gap: 8px; text-align: center;
+    background: var(--bg); padding: 24px; z-index: 5;
+  }
+  #turn p, #gone p { color: var(--muted); }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot" id="dot"></span>
+  <button class="pill" id="name" type="button" aria-label="Change your name"></button>
+  <span id="status">Connecting…</span>
+  <button class="pill" id="menu-open" type="button" aria-label="Open the menu">Menu</button>
+  <span id="player" hidden></span>
+</header>
+<div id="tip" hidden>
+  <span>For full screen, tap Share, then <b>Add to Home Screen</b>, and open Giga Couch from there.</span>
+  <button id="tip-close" type="button" aria-label="Hide this tip">Hide</button>
+</div>
+<main id="controls"></main>
+<div id="menu" hidden role="dialog" aria-label="Menu">
+  <div class="sheet">
+    <h2>Giga Couch</h2>
+    <button class="item shelf" id="menu-shelf" type="button">Back to the shelf<small>Ends this game for everyone</small></button>
+    <button class="item" id="menu-leave" type="button">Leave the game<small>Frees your player spot</small></button>
+    <button class="item" id="menu-name" type="button">Change name</button>
+    <button class="item close" id="menu-close" type="button">Close</button>
+  </div>
+</div>
+<div id="turn" hidden>
+  <h1>Turn your phone sideways</h1>
+  <p>This game's controls need the wide view.</p>
+</div>
+<div id="gone" hidden>
+  <h1>This code has changed</h1>
+  <p>Scan the code on the Giga Couch screen again.</p>
+</div>
+<script src="/p/{{CODE}}/pad.js"></script>
+</body>
+</html>

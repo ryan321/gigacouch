@@ -11,7 +11,14 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 tiny_http = "0.12"
+# Phones as controllers: the socket framing, and the QR code on the shelf.
+tungstenite = { version = "0.30", default-features = false, features = ["handshake"] }
+qrcodegen = "1.8"
 reqwest = { version = "0.12", default-features = false, features = ["blocking", "rustls-tls"] }
+
+[target.'cfg(unix)'.dependencies]
+# Raising the open-file limit so many phones can connect at once.
+libc = "0.2"
 
 [dev-dependencies]
 serde_json.workspace = true

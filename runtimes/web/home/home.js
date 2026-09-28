@@ -17,6 +17,62 @@
   var opening = false;
   var notice = "";
   var keys = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").concat(["space", "delete", "done"]);
+  var phoneStatus = null;
+  var phonesDrawn = "";
+  var lastPhonePoll = 0;
+
+  function escapeHtml(text) {
+    return String(text).replace(/[&<>"']/g, function (ch) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[ch];
+    });
+  }
+
+  // Phones join through the host's second listener. The card shows the QR
+  // code for it and every phone that has connected, with its player number.
+  function pollPhones() {
+    fetch("/__gigacouch/v1/phones", { cache: "no-store" })
+      .then(function (response) { return response.json(); })
+      .then(function (data) { phoneStatus = data; })
+      .catch(function () { phoneStatus = null; });
+  }
+
+  function drawPhones() {
+    var box = document.getElementById("phones");
+    // Every screen but the spelling keyboard, which needs the full width.
+    var visible = !!(phoneStatus && phoneStatus.enabled) && screen !== "name";
+    var html = "";
+    if (visible) {
+      // A big party can have dozens of phones: list the first few, then a count.
+      var SHOWN = 6;
+      var all = phoneStatus.phones || [];
+      var list = all.slice(0, SHOWN).map(function (phone) {
+        var badge = phone.player
+          ? '<span class="badge">P' + phone.player + "</span>"
+          : '<span class="badge waiting">·</span>';
+        var note = phone.quiet ? "<small>reconnecting</small>" : phone.player ? "" : "<small>press A to join</small>";
+        return "<li>" + badge + "<span>" + escapeHtml(phone.name) + "</span>" + note + "</li>";
+      }).join("");
+      if (all.length > SHOWN) {
+        list += '<li><span class="badge waiting">+' + (all.length - SHOWN) + "</span><span>more phones</span></li>";
+      }
+      if (phoneStatus.join_url) {
+        html = "<h2>Play on your phone</h2>" +
+          '<div class="qr">' + (phoneStatus.qr_svg || "") + "</div>" +
+          "<p>Scan with the camera. Use the same Wi-Fi as this computer.</p>" +
+          '<p class="address">' + escapeHtml(phoneStatus.join_url.replace(/^https?:\/\//, "")) + "</p>" +
+          (list ? "<ul>" + list + "</ul>" : "");
+      } else {
+        html = "<h2>Play on your phone</h2><p>Connect this computer to Wi-Fi to play with phones.</p>" +
+          (list ? "<ul>" + list + "</ul>" : "");
+      }
+    }
+    if (html !== phonesDrawn) {
+      box.innerHTML = html;
+      box.hidden = !visible;
+      document.body.classList.toggle("with-phones", visible);
+      phonesDrawn = html;
+    }
+  }
 
   function currentName() {
     var person = profiles.find(function (item) { return item.id === active; });
@@ -329,7 +385,12 @@
         retreat();
       }
     }
+    if (performance.now() - lastPhonePoll > 700) {
+      lastPhonePoll = performance.now();
+      pollPhones();
+    }
     draw();
+    drawPhones();
     window.requestAnimationFrame(frame);
   }
 

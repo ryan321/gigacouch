@@ -157,6 +157,22 @@ function frameSummary() {
   };
 }
 
+// Home keeps its phone card clear of the overlay. Only our own Home page is
+// told; a game's page is never touched.
+function syncHomeOffset() {
+  if (!mainWindow || mainWindow.isDestroyed()) {
+    return;
+  }
+  const url = mainWindow.webContents.getURL();
+  if (!sameOrigin(url) || url.includes("/play/")) {
+    return;
+  }
+  const width = overlay ? OVERLAY_WIDTH + OVERLAY_MARGIN : 0;
+  mainWindow.webContents
+    .executeJavaScript(`document.documentElement.style.setProperty("--stats-overlay", "${width}px")`)
+    .catch(() => {});
+}
+
 function layoutOverlay() {
   if (!overlay || !mainWindow || mainWindow.isDestroyed()) {
     return;
@@ -178,10 +194,14 @@ async function refreshOverlay() {
   try {
     machine = machine || (await stats.identity());
     padHistory = padHistory || new controllers.ControllerHistory(path.join(app.getPath("userData"), "controllers.json"));
-    const [reading, pads] = await Promise.all([
+    const [reading, pads, phones] = await Promise.all([
       stats.sample(mainWindow),
       controllers.summary(gamepads, padHistory),
+      fetch(`${origin}/__gigacouch/v1/phones`)
+        .then((response) => response.json())
+        .catch(() => null),
     ]);
+    pads.phones = phones && phones.enabled ? phones.phones || [] : [];
     if (!overlay || overlay.webContents.isDestroyed()) {
       return;
     }
@@ -212,6 +232,7 @@ function showOverlay() {
   overlay.webContents.loadFile(path.join(__dirname, "overlay.html")).then(refreshOverlay);
   overlayTimer = setInterval(refreshOverlay, 1000);
   mainWindow.webContents.focus();
+  syncHomeOffset();
 }
 
 function hideOverlay() {
@@ -230,6 +251,7 @@ function hideOverlay() {
   if (!view.webContents.isDestroyed()) {
     view.webContents.close();
   }
+  syncHomeOffset();
 }
 
 function setOverlay(visible) {
@@ -335,6 +357,9 @@ function createWindow() {
       if (body.quit) {
         clearInterval(quitPoll);
         app.quit();
+      } else if (body.shelf && win.webContents.getURL().includes("/play/")) {
+        // A phone chose "Back to the shelf", the same as Escape in a game.
+        win.loadURL(`${origin}/`);
       }
     } catch (_error) {
       /* The origin is local; a refused connection means it is already gone. */
@@ -342,6 +367,7 @@ function createWindow() {
   }, 400);
 
   win.webContents.on("did-finish-load", async () => {
+    syncHomeOffset();
     win.focus();
     win.webContents.focus();
     if (process.env.GIGACOUCH_DEMO_JOIN === "1" || process.env.GIGACOUCH_DEMO_RIGHT === "1") {
@@ -359,7 +385,8 @@ function createWindow() {
       win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Right" });
     }
     if (process.env.GIGACOUCH_SCREENSHOT) {
-      await new Promise((resolve) => setTimeout(resolve, 700));
+      const delay = Number(process.env.GIGACOUCH_SCREENSHOT_DELAY_MS) || 700;
+      await new Promise((resolve) => setTimeout(resolve, delay));
       const image = await win.webContents.capturePage();
       fs.writeFileSync(process.env.GIGACOUCH_SCREENSHOT, image.toPNG());
       if (overlay) {

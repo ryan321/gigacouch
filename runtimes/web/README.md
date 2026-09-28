@@ -50,6 +50,35 @@ The build downloads nothing. It copies that Electron to `/Volumes/External/proje
 
 On launch the app runs its bundled `couch web-home --serve-only` and reads the origin from its JSON line. It points Home at `https://gigacouch-platform.fly.dev` unless `GIGACOUCH_PLATFORM` is set. Quitting the app closes the host's stdin, which stops the host. Chromium's own cache goes under `Application Support/GigaCouch/browser`.
 
+### Phones as controllers
+
+Home shows a "Play on your phone" card with a QR code. A phone on the same Wi-Fi scans it and opens a touch pad. A joins, the phone shows its player number, and the card lists every phone. Every layout has a Menu button in the header. Its sheet offers Back to the shelf while a game is open, which ends the game for everyone and returns the TV to Home, the same as Escape. It also offers Leave the game and Change name. Holding B does not leave, because B is a game button on some layouts. With the stats overlay open, the card moves left of it.
+
+There is no limit on phones or players. A game can set one with `players.max` in `gigacouch.json`. When that game opens from Home, players past the limit lose their slot and can join again once there is room. Without `max`, everyone who joins plays. The Home card and the stats overlay list the first six phones and then a count. Each phone sends stick movement at most 30 times a second and button presses at once, which keeps a crowded Wi-Fi network responsive. The host raises its open-file limit at start, up to 10240 on macOS, because each phone holds one connection. A typical home router is likely the practical ceiling, somewhere around 30 to 60 busy phones. That number is an estimate, not a measurement.
+
+The phone shows the open game's layout, and the default on the shelf. A game picks one in `gigacouch.json`:
+
+```json
+"phone": { "layout": "quiz-4" }
+```
+
+| Layout | Controls | Portrait |
+| --- | --- | --- |
+| `stick-2` (default) | Floating stick, A, B | Yes |
+| `dpad-2` | Eight-way d-pad, A, B, Start | Asks to turn sideways |
+| `stick-4` | Floating stick, A, B, X, Y, Start | Asks to turn sideways |
+| `twin-stick` | Move stick, aim stick, A, Start | Asks to turn sideways |
+| `one-button` | One large A | Yes |
+| `quiz-4` | Four large A, B, X, Y buttons | Yes |
+
+An unknown layout fails the package check. The layouts live in `crates/web-host/src/assets/pad.js`, and a test keeps that table and the host's list the same.
+
+The host listens for phones on port 8790, or a free port when 8790 is busy, on every interface. That listener serves only the pad page, its script, and one WebSocket per phone, under a code that changes each time the app starts. Saves, games, Home, and account routes stay on the loopback origin, and a test checks that the phone listener refuses them. The host adds live phones to the device list the page posts, so web games see a phone as another player with no changes. A phone that goes quiet for 1.5 seconds reads as released, and after 8 seconds its slot is freed.
+
+iPhone Safari cannot hide its toolbars for a web page, which leaves little room in landscape. The pad page is an installable web app: Share, then Add to Home Screen, opens it full screen with the Giga Couch icon. The pad shows that tip once on iPhone. Android Chrome goes full screen on the first tap. The join code is kept in `phone-code` next to the Home profiles, so a home-screen pad still works after the app restarts. It stops working if the computer's Wi-Fi address changes.
+
+With the macOS firewall on, the first launch asks whether `couch` may accept incoming connections. Phones need that allowed. The page is plain http, so a phone cannot use tilt, keep its screen awake, or vibrate on iPhone. Networks that isolate devices from each other, such as many guest networks, block phones. Godot games do not receive phone input yet, and a game cannot yet define its own layout or switch layouts mid-game.
+
 ### Stats overlay
 
 View > Stats Overlay, or Cmd+I (Ctrl+I elsewhere), shows a panel over the shelf or the game. The app remembers the choice. The panel shows:
@@ -97,14 +126,16 @@ The bridge the host injects:
 ```javascript
 GigaCouch.players.list()
 GigaCouch.input.action(playerId, "jump")
+GigaCouch.input.held(playerId, "west")
 GigaCouch.input.axis(playerId, "move")
+GigaCouch.input.axis(playerId, "look")
 GigaCouch.input.glyph(playerId, "jump")
 await GigaCouch.save.read("campaign")
 await GigaCouch.save.write("campaign", data)
 GigaCouch.lifecycle.quit()
 ```
 
-`action` is true once per press. `jump` and `primary_action` are the same press.
+`action` is true once per press, and `held` is true while a button is down. Buttons are named by position: `south`, `east`, `west`, `north`, and `start`. `jump` and `primary_action` are `south`, and `secondary_action` is `east`. `move` is the left stick, d-pad, or WASD, and `look` is the right stick or a phone's aim stick. Pads, phones, and the keyboard all report through these names.
 
 ## Source build
 

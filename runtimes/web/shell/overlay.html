@@ -151,7 +151,9 @@
     on.innerHTML = "";
     const connected = (p && p.connected) || [];
     const waiting = (p && p.waiting) || [];
-    $("pad-count").textContent = connected.length ? `${connected.length} ready` : "";
+    const phones = (p && p.phones) || [];
+    const ready = connected.length + phones.length;
+    $("pad-count").textContent = ready ? `${ready} connected` : "";
     for (const pad of connected) {
       const notes = [pad.battery ? `battery ${pad.battery}` : null, pad.standard ? null : "custom layout"].filter(Boolean);
       on.append(padRow(pad.slot, pad.name, notes.join(" · ")));
@@ -159,7 +161,15 @@
     for (const pad of waiting) {
       on.append(padRow("·", pad.name, ["press a button", pad.battery ? `battery ${pad.battery}` : null].filter(Boolean).join(" · "), true));
     }
-    if (!connected.length && !waiting.length) {
+    const SHOWN = 6;
+    for (const phone of phones.slice(0, SHOWN)) {
+      const note = ["phone", phone.quiet ? "reconnecting" : phone.player ? `player ${phone.player}` : "press A to join"].join(" · ");
+      on.append(padRow(phone.player || "·", phone.name, note, !phone.player));
+    }
+    if (phones.length > SHOWN) {
+      on.append(padRow("+", `${phones.length - SHOWN} more phones`, `${phones.filter((phone) => phone.player).length} of ${phones.length} phones playing`, true));
+    }
+    if (!connected.length && !waiting.length && !phones.length) {
       const empty = document.createElement("p");
       empty.className = "empty";
       empty.textContent = "None yet. Press a button on a controller.";

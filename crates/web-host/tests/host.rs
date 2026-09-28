@@ -1,4 +1,7 @@
-use couch_web_host::{DevicePost, Host, Session, WebPackage, exchange, raw_exchange};
+use couch_web_host::{
+    DEFAULT_PHONE_LAYOUT, DevicePost, Host, PHONE_LAYOUTS, PhoneListen, Session, WebPackage,
+    exchange, raw_exchange,
+};
 use serde_json::json;
 use std::path::PathBuf;
 use std::{
@@ -310,7 +313,16 @@ fn home_asks_for_a_godot_window_and_keeps_the_reply() {
         "description": "A tiny island.",
         "color": "#a5cfa1"
     }]);
-    let host = Host::start_home_with(&home, &[], &profiles, Some(games), Some(tx), None).unwrap();
+    let host = Host::start_home_with(
+        &home,
+        &[],
+        &profiles,
+        Some(games),
+        Some(tx),
+        None,
+        PhoneListen::Off,
+    )
+    .unwrap();
     let origin = host.origin().to_string();
     std::thread::spawn(move || {
         let request = rx.recv_timeout(Duration::from_secs(3)).unwrap();
@@ -381,6 +393,7 @@ fn home_downloads_a_signed_in_package_and_serves_it() {
             token_path: account_path,
             install_root: dir.path().join("installed"),
         }),
+        PhoneListen::Off,
     )
     .unwrap();
     let (status, body) = exchange(
@@ -437,6 +450,7 @@ fn downloaded_game_stays_playable_when_the_library_server_is_down() {
             token_path: account_path.clone(),
             install_root: dir.path().join("installed"),
         }),
+        PhoneListen::Off,
     )
     .unwrap();
     let (status, body) = exchange(host.origin(), "GET", "/__gigacouch/v1/home", None);
@@ -511,4 +525,514 @@ fn keyboard(south: bool, jump: bool, leave: bool) -> DevicePost {
         }]
     }))
     .unwrap()
+}
+
+fn phone_home(dir: &std::path::Path) -> Host {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let home = root.join("../../runtimes/web/home");
+    Host::start_home_with(
+        &home,
+        &[],
+        &dir.join("profiles.json"),
+        Some(json!([])),
+        None,
+        None,
+        PhoneListen::Loopback,
+    )
+    .unwrap()
+}
+
+fn phones(host: &Host) -> serde_json::Value {
+    let (status, body) = exchange(host.origin(), "GET", "/__gigacouch/v1/phones", None);
+    assert_eq!(status, 200, "{body}");
+    serde_json::from_str(&body).unwrap()
+}
+
+fn post_devices(host: &Host) {
+    let (status, body) = exchange(
+        host.origin(),
+        "POST",
+        "/__gigacouch/v1/devices",
+        Some(br#"{"devices":[]}"#),
+    );
+    assert_eq!(status, 200, "{body}");
+}
+
+fn wait_for(what: &str, mut check: impl FnMut() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while !check() {
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
+
+#[test]
+fn home_offers_a_phone_join_address_with_a_qr_code() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = phone_home(dir.path());
+    let status = phones(&host);
+    assert_eq!(status["enabled"], true);
+    let url = status["join_url"].as_str().unwrap();
+    let port = host.phone_port().unwrap();
+    assert!(
+        url.starts_with(&format!("http://127.0.0.1:{port}/p/")),
+        "{url}"
+    );
+    assert!(status["qr_svg"].as_str().unwrap().starts_with("<svg"));
+    assert_eq!(status["phones"], json!([]));
+
+    let phone = format!("http://127.0.0.1:{port}");
+    let path = url.trim_start_matches(&phone).to_string();
+    let (code, page) = exchange(&phone, "GET", &path, None);
+    assert_eq!(code, 200);
+    assert!(page.contains("Back to the shelf"));
+    // The host's content policy blocks inline scripts, so the pad's script
+    // must come from its own file on this origin.
+    assert!(!page.contains("<script>"), "inline script would be blocked");
+    assert!(page.contains(&format!("{path}/pad.js")));
+    let (code, script) = exchange(&phone, "GET", &format!("{path}/pad.js"), None);
+    assert_eq!(code, 200);
+    assert!(script.contains("new WebSocket"));
+    assert!(script.contains("Drag anywhere here to move"));
+    let raw = raw_exchange(&phone, "GET", &path, None).to_ascii_lowercase();
+    assert!(raw.contains("script-src 'self'"));
+}
+
+#[test]
+fn the_phone_listener_serves_nothing_but_the_pad() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = phone_home(dir.path());
+    let phone = format!("http://127.0.0.1:{}", host.phone_port().unwrap());
+    for path in [
+        "/",
+        "/home.js",
+        "/p/WRONGCODE",
+        "/p/WRONGCODE/ws?id=abcdefgh12",
+        "/__gigacouch/v1/home",
+        "/__gigacouch/v1/phones",
+        "/__gigacouch/bridge.js",
+    ] {
+        let (status, _) = exchange(&phone, "GET", path, None);
+        assert_eq!(status, 404, "{path} must not be served to the network");
+    }
+    let (status, _) = exchange(
+        &phone,
+        "POST",
+        "/__gigacouch/v1/save/write",
+        Some(br#"{"slot":"campaign","data":{}}"#),
+    );
+    assert_eq!(status, 404);
+}
+
+#[test]
+fn a_phone_joins_as_a_player_and_leaves_when_it_disconnects() {
+    use tungstenite::Message;
+
+    let dir = tempfile::tempdir().unwrap();
+    let host = phone_home(dir.path());
+    let url = phones(&host)["join_url"].as_str().unwrap().to_string();
+    let socket_url = format!("{}/ws?id=testphone01", url.replacen("http://", "ws://", 1));
+    let (mut socket, _) = tungstenite::connect(socket_url.as_str()).unwrap();
+
+    let send = |socket: &mut tungstenite::WebSocket<_>, south: bool| {
+        let state = json!({"name": "Ada's phone", "south": south, "x": 0.5, "y": 0});
+        socket
+            .send(Message::Text(state.to_string().into()))
+            .unwrap();
+    };
+    send(&mut socket, false);
+    wait_for("the phone to show up", || {
+        phones(&host)["phones"].as_array().unwrap().len() == 1
+    });
+    let listed = phones(&host);
+    assert_eq!(listed["phones"][0]["name"], "Ada's phone");
+    assert_eq!(listed["phones"][0]["player"], serde_json::Value::Null);
+
+    // The page's next device post carries the phone; south joins.
+    post_devices(&host);
+    send(&mut socket, true);
+    wait_for("the phone to join", || {
+        post_devices(&host);
+        phones(&host)["phones"][0]["player"] == 1
+    });
+    let (_, snapshot) = exchange(host.origin(), "GET", "/__gigacouch/v1/snapshot", None);
+    let snapshot: serde_json::Value = serde_json::from_str(&snapshot).unwrap();
+    assert_eq!(snapshot["players"][0]["name"], "Ada's phone");
+    assert_eq!(snapshot["players"][0]["glyphs"]["jump"], "A");
+
+    // The phone hears which player it is.
+    send(&mut socket, false);
+    wait_for("the player reply", || match socket.read() {
+        Ok(Message::Text(text)) => text.as_str().contains("\"player\":1"),
+        _ => false,
+    });
+
+    socket.close(None).unwrap();
+    let _ = socket.read();
+    wait_for("the phone to leave", || {
+        phones(&host)["phones"].as_array().unwrap().is_empty()
+    });
+    post_devices(&host);
+    let (_, snapshot) = exchange(host.origin(), "GET", "/__gigacouch/v1/snapshot", None);
+    assert!(snapshot.contains("\"players\":[]"), "{snapshot}");
+}
+
+#[test]
+fn the_phone_page_draws_exactly_the_layouts_the_host_knows() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let script = fs::read_to_string(root.join("src/assets/pad.js")).unwrap();
+    let table = &script
+        [script.find("var LAYOUTS = {").unwrap()..script.find("var DEFAULT_LAYOUT").unwrap()];
+    let drawn: Vec<&str> = table
+        .lines()
+        .filter_map(|line| {
+            let line = line.trim();
+            line.strip_prefix('"')
+                .and_then(|rest| rest.strip_suffix("\": {"))
+        })
+        .collect();
+    assert_eq!(
+        drawn, PHONE_LAYOUTS,
+        "pad.js and PHONE_LAYOUTS must list the same layouts"
+    );
+    assert!(script.contains(&format!("var DEFAULT_LAYOUT = \"{DEFAULT_PHONE_LAYOUT}\"")));
+}
+
+#[test]
+fn a_package_names_its_phone_layout() {
+    let dir = tempfile::tempdir().unwrap();
+    package(dir.path(), 4, "web/index.html");
+    assert_eq!(
+        WebPackage::read(dir.path()).unwrap().phone_layout(),
+        "stick-2"
+    );
+
+    let manifest = dir.path().join("gigacouch.json");
+    let mut value: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&manifest).unwrap()).unwrap();
+    value["phone"] = json!({ "layout": "quiz-4" });
+    fs::write(&manifest, value.to_string()).unwrap();
+    assert_eq!(
+        WebPackage::read(dir.path()).unwrap().phone_layout(),
+        "quiz-4"
+    );
+
+    value["phone"] = json!({ "layout": "piano" });
+    fs::write(&manifest, value.to_string()).unwrap();
+    let error = WebPackage::read(dir.path()).unwrap_err().to_string();
+    assert!(error.contains("phone.layout must be one of"), "{error}");
+}
+
+fn phone_device(extra: serde_json::Value) -> DevicePost {
+    let mut device = json!({"id": "phone:abc", "kind": "phone", "name": "Ada", "family": "phone", "analog": true});
+    for (key, value) in extra.as_object().unwrap() {
+        device[key] = value.clone();
+    }
+    serde_json::from_value(json!({ "devices": [device] })).unwrap()
+}
+
+#[test]
+fn extra_buttons_and_the_look_stick_reach_the_game() {
+    let mut session = Session::new(4);
+    let now = Instant::now();
+    session.apply(phone_device(json!({"south": true})), now);
+    session.apply(phone_device(json!({})), now);
+    let _ = session.snapshot();
+    session.apply(
+        phone_device(json!({"west": true, "start": true, "look": {"x": 1.0, "y": 0.0}})),
+        now,
+    );
+    let first = serde_json::to_value(session.snapshot()).unwrap();
+    let player = &first["players"][0];
+    assert_eq!(player["pressed"]["west"], true);
+    assert_eq!(player["pressed"]["start"], true);
+    assert_eq!(player["pressed"]["north"], false);
+    assert_eq!(player["buttons"]["west"], true);
+    assert!(player["look"]["x"].as_f64().unwrap() > 0.9);
+    // A press is reported once; holding keeps it in `buttons` only.
+    session.apply(phone_device(json!({"west": true})), now);
+    let second = serde_json::to_value(session.snapshot()).unwrap();
+    assert_eq!(second["players"][0]["pressed"]["west"], false);
+    assert_eq!(second["players"][0]["buttons"]["west"], true);
+}
+
+#[test]
+fn a_phone_leaves_with_leave_and_holding_east_does_not_drop_it() {
+    let mut session = Session::new(4);
+    let start = Instant::now();
+    session.apply(phone_device(json!({"south": true})), start);
+    session.apply(phone_device(json!({})), start);
+    session.apply(phone_device(json!({"east": true})), start);
+    session.apply(
+        phone_device(json!({"east": true})),
+        start + Duration::from_secs(3),
+    );
+    assert_eq!(
+        session.player_of("phone:abc"),
+        Some(1),
+        "east is a game button on a phone"
+    );
+    session.apply(
+        phone_device(json!({"leave": true})),
+        start + Duration::from_secs(4),
+    );
+    assert_eq!(session.player_of("phone:abc"), None);
+}
+
+#[test]
+fn phones_switch_to_the_open_games_layout_and_back() {
+    use tungstenite::Message;
+
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let home = root.join("../../runtimes/web/home");
+    let dir = tempfile::tempdir().unwrap();
+    let game = dir.path().join("quiz");
+    package(&game, 8, "web/index.html");
+    let manifest = game.join("gigacouch.json");
+    let mut value: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&manifest).unwrap()).unwrap();
+    value["phone"] = json!({ "layout": "quiz-4" });
+    fs::write(&manifest, value.to_string()).unwrap();
+    let web = game.join("web");
+    let host = Host::start_home_with(
+        &home,
+        &[("quiz", web.as_path())],
+        &dir.path().join("profiles.json"),
+        Some(json!([])),
+        None,
+        None,
+        PhoneListen::Loopback,
+    )
+    .unwrap();
+    assert_eq!(phones(&host)["layout"], "stick-2");
+
+    let url = phones(&host)["join_url"].as_str().unwrap().to_string();
+    let socket_url = format!("{}/ws?id=layoutphone1", url.replacen("http://", "ws://", 1));
+    let (mut socket, _) = tungstenite::connect(socket_url.as_str()).unwrap();
+    let hello = json!({"name": "Ada"}).to_string();
+    socket.send(Message::Text(hello.clone().into())).unwrap();
+    let first = socket.read().unwrap();
+    assert!(first.to_text().unwrap().contains("\"layout\":\"stick-2\""));
+
+    let (status, _) = exchange(host.origin(), "GET", "/play/quiz/", None);
+    assert_eq!(status, 200);
+    assert_eq!(phones(&host)["layout"], "quiz-4");
+    // A game's scripts and images do not change the layout.
+    let (status, _) = exchange(host.origin(), "GET", "/play/quiz/game.js", None);
+    assert_eq!(status, 200);
+    assert_eq!(phones(&host)["layout"], "quiz-4");
+    socket.send(Message::Text(hello.clone().into())).unwrap();
+    let switched = socket.read().unwrap();
+    assert!(
+        switched
+            .to_text()
+            .unwrap()
+            .contains("\"layout\":\"quiz-4\"")
+    );
+
+    let (status, _) = exchange(host.origin(), "GET", "/", None);
+    assert_eq!(status, 200);
+    assert_eq!(phones(&host)["layout"], "stick-2");
+}
+
+#[test]
+fn the_pad_installs_to_a_home_screen_and_keeps_its_address() {
+    let dir = tempfile::tempdir().unwrap();
+    let first_url = {
+        let host = phone_home(dir.path());
+        let url = phones(&host)["join_url"].as_str().unwrap().to_string();
+        let phone = format!("http://127.0.0.1:{}", host.phone_port().unwrap());
+        let path = url.trim_start_matches(&phone).to_string();
+        let (status, page) = exchange(&phone, "GET", &path, None);
+        assert_eq!(status, 200);
+        assert!(page.contains(&format!("{path}/manifest.webmanifest")));
+        assert!(page.contains(&format!("{path}/icon.png")));
+        let (status, manifest) =
+            exchange(&phone, "GET", &format!("{path}/manifest.webmanifest"), None);
+        assert_eq!(status, 200);
+        let manifest: serde_json::Value = serde_json::from_str(&manifest).unwrap();
+        assert_eq!(manifest["start_url"], path.as_str());
+        let raw = raw_exchange(&phone, "GET", &format!("{path}/icon.png"), None);
+        assert!(raw.to_ascii_lowercase().contains("content-type: image/png"));
+        path
+    };
+    // A restarted Home keeps the join code, so a home-screen pad still works.
+    let host = phone_home(dir.path());
+    let url = phones(&host)["join_url"].as_str().unwrap().to_string();
+    assert!(url.ends_with(&first_url), "{url} should keep {first_url}");
+}
+
+#[test]
+fn a_phone_can_send_the_tv_back_to_the_shelf_once() {
+    use tungstenite::Message;
+
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let home = root.join("../../runtimes/web/home");
+    let dir = tempfile::tempdir().unwrap();
+    let game = dir.path().join("blob");
+    package(&game, 8, "web/index.html");
+    let web = game.join("web");
+    let host = Host::start_home_with(
+        &home,
+        &[("blob", web.as_path())],
+        &dir.path().join("profiles.json"),
+        Some(json!([])),
+        None,
+        None,
+        PhoneListen::Loopback,
+    )
+    .unwrap();
+    let control = |host: &Host| -> serde_json::Value {
+        let (_, body) = exchange(host.origin(), "GET", "/__gigacouch/v1/control", None);
+        serde_json::from_str(&body).unwrap()
+    };
+    let url = phones(&host)["join_url"].as_str().unwrap().to_string();
+    let socket_url = format!("{}/ws?id=menuphone01", url.replacen("http://", "ws://", 1));
+    let (mut socket, _) = tungstenite::connect(socket_url.as_str()).unwrap();
+    let ask = json!({"name": "Ada", "shelf": true}).to_string();
+
+    // On the shelf there is no game to leave.
+    socket.send(Message::Text(ask.clone().into())).unwrap();
+    let reply = socket.read().unwrap();
+    assert!(reply.to_text().unwrap().contains("\"game\":false"));
+    assert_eq!(control(&host)["shelf"], false);
+
+    let (status, _) = exchange(host.origin(), "GET", "/play/blob/", None);
+    assert_eq!(status, 200);
+    socket.send(Message::Text(ask.into())).unwrap();
+    let reply = socket.read().unwrap();
+    assert!(reply.to_text().unwrap().contains("\"game\":true"));
+    assert_eq!(control(&host)["shelf"], true);
+    assert_eq!(control(&host)["shelf"], false, "reported once");
+    assert_eq!(control(&host)["quit"], false, "the app keeps running");
+}
+
+fn pad_device(index: usize, south: bool) -> serde_json::Value {
+    json!({"id": format!("phone:p{index:03}"), "kind": "phone", "name": format!("Phone {index}"), "family": "phone", "south": south, "analog": true})
+}
+
+#[test]
+fn without_a_game_limit_everyone_who_joins_plays() {
+    let mut session = Session::unlimited();
+    let now = Instant::now();
+    let pressed: Vec<_> = (0..50).map(|index| pad_device(index, true)).collect();
+    session.apply(
+        serde_json::from_value(json!({ "devices": pressed })).unwrap(),
+        now,
+    );
+    let snapshot = serde_json::to_value(session.snapshot()).unwrap();
+    let players = snapshot["players"].as_array().unwrap();
+    assert_eq!(players.len(), 50);
+    assert_eq!(players[49]["id"], 50);
+
+    // A game with room for four keeps the first four; the rest can rejoin
+    // once the shelf lifts the limit.
+    session.set_limit(Some(4));
+    assert_eq!(session.player_of("phone:p003"), Some(4));
+    assert_eq!(session.player_of("phone:p004"), None);
+    let released: Vec<_> = (0..50).map(|index| pad_device(index, false)).collect();
+    session.apply(
+        serde_json::from_value(json!({ "devices": released })).unwrap(),
+        now,
+    );
+    let again: Vec<_> = (0..50).map(|index| pad_device(index, index >= 4)).collect();
+    session.apply(
+        serde_json::from_value(json!({ "devices": again.clone() })).unwrap(),
+        now,
+    );
+    assert_eq!(session.player_of("phone:p010"), None, "the game is full");
+    session.set_limit(None);
+    session.apply(
+        serde_json::from_value(json!({ "devices": released })).unwrap(),
+        now,
+    );
+    session.apply(
+        serde_json::from_value(json!({ "devices": again })).unwrap(),
+        now,
+    );
+    assert!(
+        session.player_of("phone:p010").is_some(),
+        "room again on the shelf"
+    );
+}
+
+#[test]
+fn a_package_may_leave_out_the_player_maximum_or_go_past_sixteen() {
+    let dir = tempfile::tempdir().unwrap();
+    package(dir.path(), 4, "web/index.html");
+    let manifest = dir.path().join("gigacouch.json");
+    let mut value: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&manifest).unwrap()).unwrap();
+    value["players"] = json!({ "min": 3 });
+    fs::write(&manifest, value.to_string()).unwrap();
+    assert_eq!(WebPackage::read(dir.path()).unwrap().players_max(), None);
+    value["players"] = json!({ "min": 3, "max": 48 });
+    fs::write(&manifest, value.to_string()).unwrap();
+    assert_eq!(
+        WebPackage::read(dir.path()).unwrap().players_max(),
+        Some(48)
+    );
+    value["players"] = json!({ "min": 5, "max": 4 });
+    fs::write(&manifest, value.to_string()).unwrap();
+    assert!(WebPackage::read(dir.path()).is_err());
+}
+
+#[test]
+fn forty_phones_join_home_as_forty_players() {
+    use tungstenite::Message;
+
+    let dir = tempfile::tempdir().unwrap();
+    let host = phone_home(dir.path());
+    let url = phones(&host)["join_url"].as_str().unwrap().to_string();
+    let base = url.replacen("http://", "ws://", 1);
+    let mut sockets: Vec<_> = (0..40)
+        .map(|index| {
+            let (socket, _) =
+                tungstenite::connect(format!("{base}/ws?id=crowd{index:04}")).unwrap();
+            socket
+        })
+        .collect();
+    for (index, socket) in sockets.iter_mut().enumerate() {
+        let state = json!({"name": format!("Guest {index}"), "south": true});
+        socket
+            .send(Message::Text(state.to_string().into()))
+            .unwrap();
+    }
+    wait_for("forty phones to join", || {
+        post_devices(&host);
+        let status = phones(&host);
+        let list = status["phones"].as_array().unwrap();
+        list.len() == 40 && list.iter().all(|phone| phone["player"].is_u64())
+    });
+    let status = phones(&host);
+    let mut numbers: Vec<u64> = status["phones"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|phone| phone["player"].as_u64().unwrap())
+        .collect();
+    numbers.sort_unstable();
+    assert_eq!(numbers, (1..=40).collect::<Vec<u64>>());
+}
+
+#[test]
+fn home_raises_the_open_file_limit_for_many_phones() {
+    couch_web_host::raise_open_file_limit();
+    #[cfg(unix)]
+    {
+        let mut limit = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        // SAFETY: reads into a struct on this stack frame.
+        assert_eq!(
+            unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) },
+            0
+        );
+        assert!(
+            limit.rlim_cur >= limit.rlim_max.min(10240),
+            "soft limit {} should reach the hard limit or 10240",
+            limit.rlim_cur
+        );
+    }
 }

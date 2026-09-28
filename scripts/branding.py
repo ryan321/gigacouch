@@ -108,6 +108,32 @@ def make_mac_tile(destination: Path, size: int = 1024) -> Path:
     return destination
 
 
+def make_phone_icon(destination: Path, size: int = 512) -> Path:
+    """Draw the phone home-screen icon: the couch on a full-bleed square.
+
+    iOS and Android round the corners themselves, so there is no margin or
+    shadow. The web host embeds this file for the phone pad page.
+    """
+    from PIL import Image
+
+    require_brand()
+    gradient = Image.new("RGB", (1, size))
+    top, mid, bottom = RAIL
+    for y in range(size):
+        t = y / (size - 1)
+        low, high, f = (top, mid, t / 0.5) if t < 0.5 else (mid, bottom, (t - 0.5) / 0.5)
+        gradient.putpixel((0, y), tuple(round(a + (b - a) * f) for a, b in zip(low, high)))
+    icon = gradient.resize((size, size)).convert("RGBA")
+    couch = clean_mark()
+    width = round(size * 0.66)
+    height = round(couch.height * width / couch.width)
+    couch = couch.resize((width, height), Image.LANCZOS)
+    icon.alpha_composite(couch, ((size - width) // 2, (size - height) // 2 + round(size * 0.01)))
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    icon.convert("RGB").save(destination, optimize=True)
+    return destination
+
+
 def make_icns(destination: Path, source: Path = MARK) -> Path:
     require_brand()
     destination.parent.mkdir(parents=True, exist_ok=True)

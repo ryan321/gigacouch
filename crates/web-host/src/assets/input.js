@@ -91,7 +91,11 @@
         family: family(pad.id || ""),
         south: pressed(buttons, 0),
         east: pressed(buttons, 1),
+        west: pressed(buttons, 2),
+        north: pressed(buttons, 3),
+        start: pressed(buttons, 9),
         analog: analog,
+        look: { x: axes[2] || 0, y: axes[3] || 0 },
         move: analog
           ? { x: axes[0] || 0, y: axes[1] || 0 }
           : { x: digitalX, y: digitalY },

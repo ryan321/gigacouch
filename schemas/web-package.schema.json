@@ -4,27 +4,85 @@
   "description": "Minimal local package for the web-1 browser. This schema does not describe hashes, signatures, or a certified sandbox.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["manifest_version", "game_id", "title", "version", "runtime", "entrypoint", "gigacouch_api", "players"],
+  "required": [
+    "manifest_version",
+    "game_id",
+    "title",
+    "version",
+    "runtime",
+    "entrypoint",
+    "gigacouch_api",
+    "players"
+  ],
   "properties": {
-    "manifest_version": { "const": 1 },
+    "manifest_version": {
+      "const": 1
+    },
     "game_id": {
       "type": "string",
       "minLength": 1,
       "maxLength": 64,
       "pattern": "^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$"
     },
-    "title": { "type": "string", "minLength": 1, "maxLength": 80 },
-    "version": { "type": "string", "maxLength": 64 },
-    "runtime": { "const": "web-1" },
-    "entrypoint": { "type": "string", "pattern": "^web/[A-Za-z0-9_./-]+\\.html$" },
-    "gigacouch_api": { "const": "1" },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 80
+    },
+    "version": {
+      "type": "string",
+      "maxLength": 64
+    },
+    "runtime": {
+      "const": "web-1"
+    },
+    "entrypoint": {
+      "type": "string",
+      "pattern": "^web/[A-Za-z0-9_./-]+\\.html$"
+    },
+    "gigacouch_api": {
+      "const": "1"
+    },
     "players": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["min", "max"],
+      "required": [
+        "min"
+      ],
       "properties": {
-        "min": { "type": "integer", "minimum": 1, "maximum": 16 },
-        "max": { "type": "integer", "minimum": 1, "maximum": 16 }
+        "min": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535
+        },
+        "max": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 65535,
+          "description": "Optional. The most players this game allows. Players past it wait on their phones or pads until there is room."
+        }
+      },
+      "description": "How many people can play. Without max, everyone who joins gets to play; phones make dozens possible."
+    },
+    "phone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "layout"
+      ],
+      "description": "How a phone controller looks while this game is open. Without it, phones show stick-2.",
+      "properties": {
+        "layout": {
+          "enum": [
+            "stick-2",
+            "dpad-2",
+            "stick-4",
+            "twin-stick",
+            "one-button",
+            "quiz-4"
+          ],
+          "description": "stick-2: stick, A, B. dpad-2: d-pad, A, B, Start. stick-4: stick, A, B, X, Y, Start. twin-stick: move and aim sticks, A, Start. one-button: one large A. quiz-4: four large A, B, X, Y buttons."
+        }
       }
     }
   }

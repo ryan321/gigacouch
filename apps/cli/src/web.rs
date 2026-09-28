@@ -60,6 +60,7 @@ pub async fn home(
     let catalog = crate::host::shelf_catalog(&sdk, data_dir)
         .await
         .unwrap_or_default();
+    couch_web_host::raise_open_file_limit();
     let (play_tx, play_rx) = mpsc::channel();
     let host = Host::start_home_with(
         &home_dir,
@@ -72,6 +73,7 @@ pub async fn home(
             token_path: data_dir.join("account.json"),
             install_root: data_dir.join("installed"),
         }),
+        couch_web_host::PhoneListen::Network,
     )?;
     announce(
         &host,

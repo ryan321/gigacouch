@@ -6,6 +6,7 @@
 mod account;
 mod home;
 mod package;
+mod phones;
 mod session;
 
 use std::{
@@ -21,8 +22,9 @@ use std::{
 };
 
 pub use account::AccountStore;
-pub use package::{MAX_PLAYERS, WebPackage};
-pub use session::{DevicePost, Session, Snapshot};
+pub use package::{DEFAULT_PHONE_LAYOUT, PHONE_LAYOUTS, WebPackage};
+pub use phones::{PREFERRED_PORT as PHONE_PORT, PhoneListen};
+pub use session::{Buttons, DevicePost, Session, Snapshot};
 
 /// A Home request to start a native game. The caller spawns the process and replies.
 pub struct PlayRequest {
@@ -75,6 +77,37 @@ struct State {
     game_quit: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     home: Option<home::Shelf>,
+    phones: Option<Arc<phones::PhoneHub>>,
+}
+
+/// Lets many phones connect at once. Every phone holds one open connection,
+/// and macOS starts an app at 256 open files. This raises the soft limit to
+/// the hard limit (capped at 10240, the most macOS accepts). A failure keeps
+/// the old limit; Home still works with fewer phones.
+pub fn raise_open_file_limit() {
+    #[cfg(unix)]
+    {
+        let mut limit = libc::rlimit {
+            rlim_cur: 0,
+            rlim_max: 0,
+        };
+        // SAFETY: getrlimit and setrlimit only read and write the struct we
+        // pass, which lives on this stack frame for the whole call.
+        unsafe {
+            if libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) != 0 {
+                return;
+            }
+            let wanted = if cfg!(target_os = "macos") {
+                limit.rlim_max.min(10240)
+            } else {
+                limit.rlim_max
+            };
+            if wanted > limit.rlim_cur {
+                limit.rlim_cur = wanted;
+                libc::setrlimit(libc::RLIMIT_NOFILE, &limit);
+            }
+        }
+    }
 }
 
 pub struct Host {
@@ -83,6 +116,8 @@ pub struct Host {
     game_quit: Arc<AtomicBool>,
     stop: Arc<AtomicBool>,
     thread: Option<JoinHandle<()>>,
+    phone_thread: Option<JoinHandle<()>>,
+    phone_port: Option<u16>,
 }
 
 impl Host {
@@ -113,10 +148,14 @@ impl Host {
             package: Some(package),
             web_root,
             save_dir: save_dir.to_path_buf(),
-            session: Mutex::new(Session::new(max_players)),
+            session: Mutex::new(match max_players {
+                Some(max) => Session::new(max),
+                None => Session::unlimited(),
+            }),
             game_quit: Arc::clone(&game_quit),
             stop: Arc::clone(&stop),
             home: None,
+            phones: None,
         });
         let thread = thread::spawn(move || serve_loop(listener, state));
         Ok(Self {
@@ -125,6 +164,8 @@ impl Host {
             game_quit,
             stop,
             thread: Some(thread),
+            phone_thread: None,
+            phone_port: None,
         })
     }
 
@@ -135,6 +176,7 @@ impl Host {
         games: Option<serde_json::Value>,
         play: Option<std::sync::mpsc::Sender<PlayRequest>>,
         account: Option<AccountStore>,
+        phone_listen: PhoneListen,
     ) -> Result<Self, Error> {
         let mounts = mounts
             .iter()
@@ -144,6 +186,16 @@ impl Host {
             })
             .collect();
         let shelf = home::Shelf::open(home_dir, mounts, profiles_path, games, play, account)?;
+        // A phone listener that cannot bind leaves Home working without phones.
+        let code_file = profiles_path.with_file_name("phone-code");
+        let (hub, phone_server) = match phones::PhoneHub::bind(phone_listen, Some(&code_file)) {
+            Some((hub, server)) => (Some(hub), Some(server)),
+            None => (None, None),
+        };
+        let phone_port = phone_server
+            .as_ref()
+            .and_then(|server| server.server_addr().to_ip())
+            .map(|addr| addr.port());
         let listener = tiny_http::Server::http("127.0.0.1:0")
             .map_err(|err| Error::Host(format!("could not bind the local origin: {err}")))?;
         let port = listener
@@ -158,10 +210,15 @@ impl Host {
             package: None,
             web_root: home_dir.to_path_buf(),
             save_dir: profiles_path.parent().unwrap_or(home_dir).to_path_buf(),
-            session: Mutex::new(Session::new(16)),
+            session: Mutex::new(Session::unlimited()),
             game_quit: Arc::clone(&game_quit),
             stop: Arc::clone(&stop),
             home: Some(shelf),
+            phones: hub,
+        });
+        let phone_thread = phone_server.map(|server| {
+            let state = Arc::clone(&state);
+            thread::spawn(move || phones::serve(server, state))
         });
         let thread = thread::spawn(move || serve_loop(listener, state));
         Ok(Self {
@@ -170,6 +227,8 @@ impl Host {
             game_quit,
             stop,
             thread: Some(thread),
+            phone_thread,
+            phone_port,
         })
     }
 
@@ -178,11 +237,24 @@ impl Host {
         mounts: &[(&str, &Path)],
         profiles_path: &Path,
     ) -> Result<Self, Error> {
-        Self::start_home_with(home_dir, mounts, profiles_path, None, None, None)
+        Self::start_home_with(
+            home_dir,
+            mounts,
+            profiles_path,
+            None,
+            None,
+            None,
+            PhoneListen::Off,
+        )
     }
 
     pub fn origin(&self) -> &str {
         &self.origin
+    }
+
+    /// The port phones connect to, when Home listens for them.
+    pub fn phone_port(&self) -> Option<u16> {
+        self.phone_port
     }
 
     pub fn game_quit(&self) -> bool {
@@ -199,6 +271,9 @@ impl Host {
         self.stop.store(true, Ordering::SeqCst);
         let _ = TcpStream::connect(&self.addr);
         if let Some(thread) = self.thread.take() {
+            let _ = thread.join();
+        }
+        if let Some(thread) = self.phone_thread.take() {
             let _ = thread.join();
         }
     }
@@ -268,10 +343,29 @@ fn dispatch(state: &State, method: &str, url: &str, body: &[u8]) -> Reply {
         }
         ("GET", "/__gigacouch/v1/control") => {
             let quit = state.game_quit.load(Ordering::SeqCst);
-            text_response(200, "application/json", format!("{{\"quit\":{quit}}}").into_bytes())
+            // A phone asked to leave the game for the shelf; reported once.
+            let shelf = state
+                .phones
+                .as_ref()
+                .is_some_and(|hub| hub.take_shelf_request());
+            text_response(
+                200,
+                "application/json",
+                format!("{{\"quit\":{quit},\"shelf\":{shelf}}}").into_bytes(),
+            )
+        }
+        ("GET", "/__gigacouch/v1/phones") => {
+            let status = match &state.phones {
+                Some(hub) => hub.status(state),
+                None => serde_json::json!({ "enabled": false, "phones": [] }),
+            };
+            text_response(200, "application/json", status.to_string().into_bytes())
         }
         ("POST", "/__gigacouch/v1/devices") => match serde_json::from_slice::<DevicePost>(body) {
-            Ok(post) => {
+            Ok(mut post) => {
+                if let Some(hub) = &state.phones {
+                    post.devices.extend(hub.devices());
+                }
                 state.session.lock().expect("session").apply(post, std::time::Instant::now());
                 text_response(200, "application/json", br#"{"ok":true}"#.to_vec())
             }
