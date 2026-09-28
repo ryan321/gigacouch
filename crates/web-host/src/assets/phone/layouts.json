@@ -1,0 +1,151 @@
+{
+  "stick-2": {
+    "title": "Stick and two buttons",
+    "about": "A floating stick with A and B. The default for most games.",
+    "landscape": [
+      {"type": "stick", "axis": "move", "rect": [0,0,0.55,1], "hint": "Drag anywhere here to move"},
+      {"type": "button", "key": "south", "label": "A", "hint": "join · jump", "color": "mint", "x": 0.85, "y": 0.66, "size": 0.4},
+      {"type": "button", "key": "east", "label": "B", "color": "amber", "x": 0.64, "y": 0.38, "size": 0.3}
+    ],
+    "portrait": [
+      {"type": "stick", "axis": "move", "rect": [0,0.45,1,0.55], "hint": "Drag anywhere here to move"},
+      {"type": "button", "key": "south", "label": "A", "hint": "join · jump", "color": "mint", "x": 0.7, "y": 0.24, "size": 0.4},
+      {"type": "button", "key": "east", "label": "B", "color": "amber", "x": 0.28, "y": 0.18, "size": 0.3}
+    ]
+  },
+  "dpad-2": {
+    "title": "D-pad",
+    "about": "An eight-way d-pad with A, B and Start. For retro and menu-heavy games.",
+    "landscape": [
+      {"type": "dpad", "x": 0.24, "y": 0.56, "size": 0.7},
+      {"type": "button", "key": "start", "label": "Start", "small": true, "x": 0.5, "y": 0.14, "size": 0.16},
+      {"type": "button", "key": "south", "label": "A", "color": "mint", "x": 0.86, "y": 0.64, "size": 0.34},
+      {"type": "button", "key": "east", "label": "B", "color": "amber", "x": 0.67, "y": 0.46, "size": 0.3}
+    ]
+  },
+  "stick-4": {
+    "title": "Stick and four buttons",
+    "about": "A stick with A, B, X, Y and Start. For games with more actions.",
+    "landscape": [
+      {"type": "stick", "axis": "move", "rect": [0,0,0.5,1], "hint": "Drag anywhere here to move"},
+      {"type": "button", "key": "start", "label": "Start", "small": true, "x": 0.5, "y": 0.1, "size": 0.14},
+      {"type": "button", "key": "south", "label": "A", "color": "mint", "x": 0.77, "y": 0.78, "size": 0.25},
+      {"type": "button", "key": "east", "label": "B", "color": "coral", "x": 0.91, "y": 0.52, "size": 0.25},
+      {"type": "button", "key": "west", "label": "X", "color": "blue", "x": 0.63, "y": 0.52, "size": 0.25},
+      {"type": "button", "key": "north", "label": "Y", "color": "amber", "x": 0.77, "y": 0.26, "size": 0.25}
+    ]
+  },
+  "twin-stick": {
+    "title": "Twin sticks",
+    "about": "One stick moves, the other aims. For arena shooters.",
+    "landscape": [
+      {"type": "stick", "axis": "move", "rect": [0,0,0.5,1], "hint": "Drag to move"},
+      {"type": "stick", "axis": "look", "rect": [0.5,0,0.5,1], "hint": "Drag to aim"},
+      {"type": "button", "key": "south", "label": "A", "color": "mint", "x": 0.5, "y": 0.84, "size": 0.2},
+      {"type": "button", "key": "start", "label": "Start", "small": true, "x": 0.5, "y": 0.1, "size": 0.14}
+    ]
+  },
+  "one-button": {
+    "title": "One button",
+    "about": "One big button. For reaction and party games.",
+    "landscape": [
+      {"type": "button", "key": "south", "label": "A", "hint": "tap", "color": "mint", "x": 0.5, "y": 0.5, "size": 0.86}
+    ],
+    "portrait": [
+      {"type": "button", "key": "south", "label": "A", "hint": "tap", "color": "mint", "x": 0.5, "y": 0.5, "size": 0.86}
+    ]
+  },
+  "quiz-4": {
+    "title": "Quiz",
+    "about": "Four big answer buttons. For trivia and voting.",
+    "landscape": [
+      {"type": "button", "key": "south", "label": "A", "color": "mint", "rect": [0.02,0.04,0.47,0.44]},
+      {"type": "button", "key": "east", "label": "B", "color": "coral", "rect": [0.51,0.04,0.47,0.44]},
+      {"type": "button", "key": "west", "label": "X", "color": "blue", "rect": [0.02,0.52,0.47,0.44]},
+      {"type": "button", "key": "north", "label": "Y", "color": "amber", "rect": [0.51,0.52,0.47,0.44]}
+    ],
+    "portrait": [
+      {"type": "button", "key": "south", "label": "A", "color": "mint", "rect": [0.04,0.02,0.44,0.47]},
+      {"type": "button", "key": "east", "label": "B", "color": "coral", "rect": [0.52,0.02,0.44,0.47]},
+      {"type": "button", "key": "west", "label": "X", "color": "blue", "rect": [0.04,0.51,0.44,0.47]},
+      {"type": "button", "key": "north", "label": "Y", "color": "amber", "rect": [0.52,0.51,0.44,0.47]}
+    ]
+  },
+  "racing": {
+    "title": "Racing",
+    "about": "Steer with the arrows, with Gas and Brake pedals. For driving games.",
+    "landscape": [
+      {"type": "arrow", "dir": -1, "label": "◀", "x": 0.13, "y": 0.6, "size": 0.42},
+      {"type": "arrow", "dir": 1, "label": "▶", "x": 0.36, "y": 0.6, "size": 0.42},
+      {"type": "button", "key": "start", "label": "Start", "small": true, "x": 0.5, "y": 0.1, "size": 0.14},
+      {"type": "button", "key": "east", "label": "Brake", "color": "coral", "rect": [0.56,0.34,0.18,0.6]},
+      {"type": "button", "key": "south", "label": "Gas", "color": "mint", "rect": [0.77,0.12,0.21,0.82]}
+    ]
+  },
+  "paddle": {
+    "title": "Paddle",
+    "about": "A slider that stays where you leave it. For Pong and Breakout.",
+    "landscape": [
+      {"type": "slider", "rect": [0.04,0.34,0.92,0.42], "hint": "Slide to move. It stays where you leave it."},
+      {"type": "button", "key": "south", "label": "A", "color": "mint", "x": 0.9, "y": 0.15, "size": 0.24}
+    ],
+    "portrait": [
+      {"type": "slider", "rect": [0.05,0.56,0.9,0.3], "hint": "Slide to move"},
+      {"type": "button", "key": "south", "label": "A", "color": "mint", "x": 0.5, "y": 0.24, "size": 0.4}
+    ]
+  },
+  "touchpad": {
+    "title": "Touchpad",
+    "about": "Touch anywhere to point. For cursors and drawing.",
+    "landscape": [
+      {"type": "touchpad", "rect": [0.02,0.04,0.66,0.92], "hint": "Touch to point"},
+      {"type": "button", "key": "east", "label": "B", "color": "amber", "x": 0.84, "y": 0.28, "size": 0.26},
+      {"type": "button", "key": "south", "label": "A", "color": "mint", "x": 0.84, "y": 0.7, "size": 0.34}
+    ],
+    "portrait": [
+      {"type": "touchpad", "rect": [0.04,0.02,0.92,0.62], "hint": "Touch to point"},
+      {"type": "button", "key": "south", "label": "A", "color": "mint", "x": 0.32, "y": 0.83, "size": 0.34},
+      {"type": "button", "key": "east", "label": "B", "color": "amber", "x": 0.72, "y": 0.83, "size": 0.26}
+    ]
+  },
+  "lanes-4": {
+    "title": "Four lanes",
+    "about": "Four tall lanes. For rhythm games.",
+    "landscape": [
+      {"type": "button", "key": "west", "label": "X", "color": "blue", "rect": [0.01,0.04,0.235,0.92]},
+      {"type": "button", "key": "south", "label": "A", "color": "mint", "rect": [0.2575,0.04,0.235,0.92]},
+      {"type": "button", "key": "east", "label": "B", "color": "coral", "rect": [0.5075,0.04,0.235,0.92]},
+      {"type": "button", "key": "north", "label": "Y", "color": "amber", "rect": [0.7575,0.04,0.235,0.92]}
+    ],
+    "portrait": [
+      {"type": "button", "key": "west", "label": "X", "color": "blue", "rect": [0.02,0.02,0.23,0.96]},
+      {"type": "button", "key": "south", "label": "A", "color": "mint", "rect": [0.265,0.02,0.23,0.96]},
+      {"type": "button", "key": "east", "label": "B", "color": "coral", "rect": [0.51,0.02,0.23,0.96]},
+      {"type": "button", "key": "north", "label": "Y", "color": "amber", "rect": [0.755,0.02,0.23,0.96]}
+    ]
+  },
+  "two-choice": {
+    "title": "Two choices",
+    "about": "Two huge buttons. For this-or-that and yes-or-no.",
+    "landscape": [
+      {"type": "button", "key": "south", "label": "A", "color": "mint", "rect": [0.02,0.04,0.47,0.92]},
+      {"type": "button", "key": "east", "label": "B", "color": "coral", "rect": [0.51,0.04,0.47,0.92]}
+    ],
+    "portrait": [
+      {"type": "button", "key": "south", "label": "A", "color": "mint", "rect": [0.04,0.02,0.92,0.47]},
+      {"type": "button", "key": "east", "label": "B", "color": "coral", "rect": [0.04,0.51,0.92,0.47]}
+    ]
+  },
+  "draw": {
+    "title": "Drawing",
+    "about": "A canvas with a color picker. Strokes go to the game as they are drawn.",
+    "landscape": [
+      {"type": "canvas", "rect": [0.01,0.03,0.84,0.94]},
+      {"type": "palette", "rect": [0.87,0.03,0.12,0.94]}
+    ],
+    "portrait": [
+      {"type": "canvas", "rect": [0.02,0.01,0.96,0.84]},
+      {"type": "palette", "rect": [0.02,0.87,0.96,0.12]}
+    ]
+  }
+}

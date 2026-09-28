@@ -9,6 +9,20 @@
   "players": {
     "min": 1
   },
+  "actions": {
+    "boost": {
+      "type": "button",
+      "pad": "south"
+    },
+    "shield": {
+      "type": "button",
+      "pad": "east"
+    },
+    "throttle": {
+      "type": "axis",
+      "pad": "look"
+    }
+  },
   "phone": {
     "layout": "lab-pad",
     "images": {
@@ -198,7 +212,11 @@
               0.03,
               0.47,
               0.4
-            ]
+            ],
+            "feedback": {
+              "sound": "click",
+              "rumble": "tap"
+            }
           },
           {
             "type": "button",
@@ -210,7 +228,11 @@
               0.03,
               0.47,
               0.4
-            ]
+            ],
+            "feedback": {
+              "sound": "click",
+              "rumble": "tap"
+            }
           },
           {
             "type": "button",
@@ -222,7 +244,11 @@
               0.45,
               0.47,
               0.4
-            ]
+            ],
+            "feedback": {
+              "sound": "click",
+              "rumble": "tap"
+            }
           },
           {
             "type": "button",
@@ -234,7 +260,11 @@
               0.45,
               0.47,
               0.4
-            ]
+            ],
+            "feedback": {
+              "sound": "click",
+              "rumble": "tap"
+            }
           },
           {
             "type": "button",
@@ -260,7 +290,11 @@
               0.01,
               0.92,
               0.2
-            ]
+            ],
+            "feedback": {
+              "sound": "click",
+              "rumble": "tap"
+            }
           },
           {
             "type": "button",
@@ -272,7 +306,11 @@
               0.22,
               0.92,
               0.2
-            ]
+            ],
+            "feedback": {
+              "sound": "click",
+              "rumble": "tap"
+            }
           },
           {
             "type": "button",
@@ -284,7 +322,11 @@
               0.43,
               0.92,
               0.2
-            ]
+            ],
+            "feedback": {
+              "sound": "click",
+              "rumble": "tap"
+            }
           },
           {
             "type": "button",
@@ -296,7 +338,11 @@
               0.64,
               0.92,
               0.2
-            ]
+            ],
+            "feedback": {
+              "sound": "click",
+              "rumble": "tap"
+            }
           },
           {
             "type": "button",
@@ -324,7 +370,12 @@
               0.04,
               0.31,
               0.8
-            ]
+            ],
+            "feedback": {
+              "sound": "whoosh",
+              "rumble": "bump",
+              "flash": true
+            }
           },
           {
             "type": "button",
@@ -336,7 +387,12 @@
               0.04,
               0.31,
               0.8
-            ]
+            ],
+            "feedback": {
+              "sound": "whoosh",
+              "rumble": "bump",
+              "flash": true
+            }
           },
           {
             "type": "button",
@@ -348,7 +404,12 @@
               0.04,
               0.31,
               0.8
-            ]
+            ],
+            "feedback": {
+              "sound": "whoosh",
+              "rumble": "bump",
+              "flash": true
+            }
           },
           {
             "type": "button",
@@ -374,7 +435,12 @@
               0.01,
               0.92,
               0.27
-            ]
+            ],
+            "feedback": {
+              "sound": "whoosh",
+              "rumble": "bump",
+              "flash": true
+            }
           },
           {
             "type": "button",
@@ -386,7 +452,12 @@
               0.29,
               0.92,
               0.27
-            ]
+            ],
+            "feedback": {
+              "sound": "whoosh",
+              "rumble": "bump",
+              "flash": true
+            }
           },
           {
             "type": "button",
@@ -398,7 +469,12 @@
               0.57,
               0.92,
               0.27
-            ]
+            ],
+            "feedback": {
+              "sound": "whoosh",
+              "rumble": "bump",
+              "flash": true
+            }
           },
           {
             "type": "button",
@@ -411,6 +487,198 @@
               0.4,
               0.11
             ]
+          }
+        ]
+      },
+      "lab-ship": {
+        "landscape": [
+          {
+            "type": "stick",
+            "axis": "move",
+            "rect": [
+              0,
+              0,
+              0.42,
+              1
+            ],
+            "hint": "Steer"
+          },
+          {
+            "type": "slider",
+            "axis": "throttle",
+            "rect": [
+              0.44,
+              0.3,
+              0.2,
+              0.4
+            ],
+            "hint": "Throttle"
+          },
+          {
+            "type": "button",
+            "key": "boost",
+            "label": "Boost",
+            "color": "amber",
+            "rect": [
+              0.67,
+              0.04,
+              0.31,
+              0.4
+            ],
+            "feedback": {
+              "sound": "whoosh",
+              "rumble": "hit",
+              "flash": true
+            }
+          },
+          {
+            "type": "button",
+            "key": "shield",
+            "label": "Shield",
+            "color": "blue",
+            "rect": [
+              0.67,
+              0.46,
+              0.31,
+              0.4
+            ],
+            "feedback": {
+              "sound": "ding",
+              "rumble": "tap"
+            }
+          },
+          {
+            "type": "button",
+            "key": "start",
+            "label": "Next",
+            "color": "panel",
+            "rect": [
+              0.44,
+              0.87,
+              0.2,
+              0.11
+            ]
+          }
+        ],
+        "portrait": [
+          {
+            "type": "stick",
+            "axis": "move",
+            "rect": [
+              0,
+              0.52,
+              1,
+              0.48
+            ],
+            "hint": "Steer"
+          },
+          {
+            "type": "slider",
+            "axis": "throttle",
+            "rect": [
+              0.04,
+              0.36,
+              0.92,
+              0.14
+            ],
+            "hint": "Throttle"
+          },
+          {
+            "type": "button",
+            "key": "boost",
+            "label": "Boost",
+            "color": "amber",
+            "rect": [
+              0.04,
+              0.01,
+              0.45,
+              0.22
+            ],
+            "feedback": {
+              "sound": "whoosh",
+              "rumble": "hit",
+              "flash": true
+            }
+          },
+          {
+            "type": "button",
+            "key": "shield",
+            "label": "Shield",
+            "color": "blue",
+            "rect": [
+              0.51,
+              0.01,
+              0.45,
+              0.22
+            ],
+            "feedback": {
+              "sound": "ding",
+              "rumble": "tap"
+            }
+          },
+          {
+            "type": "button",
+            "key": "start",
+            "label": "Next",
+            "color": "panel",
+            "rect": [
+              0.3,
+              0.25,
+              0.4,
+              0.09
+            ]
+          }
+        ]
+      }
+    },
+    "views": {
+      "hand": {
+        "items": [
+          {
+            "type": "text",
+            "style": "title",
+            "text": {
+              "bind": "title"
+            }
+          },
+          {
+            "type": "text",
+            "text": {
+              "bind": "text"
+            }
+          },
+          {
+            "type": "choices",
+            "choices": {
+              "bind": "cards"
+            }
+          }
+        ]
+      },
+      "vote": {
+        "items": [
+          {
+            "type": "text",
+            "style": "title",
+            "text": {
+              "bind": "question"
+            }
+          },
+          {
+            "type": "text",
+            "text": "Everyone votes: players and audience."
+          },
+          {
+            "type": "choices",
+            "choices": {
+              "bind": "options"
+            }
+          },
+          {
+            "type": "text",
+            "text": {
+              "bind": "tally"
+            }
           }
         ]
       }

@@ -43,11 +43,12 @@
           if (s.hands[player.id]) return;
           var hand = [0, 1, 2].map(function () { return CARDS[Math.floor(Math.random() * CARDS.length)]; });
           s.hands[player.id] = hand;
-          api.phone.show(player.id, {
+          // The lab's own "hand" view (gigacouch.json), filled in per player.
+          api.phone.show(player.id, "hand", {
             id: "hand",
             title: "Your hand",
             text: "Play one card. Only you can see these.",
-            choices: hand.map(function (card, index) {
+            cards: hand.map(function (card, index) {
               return { id: card + "-" + index, label: card.charAt(0).toUpperCase() + card.slice(1), image: card };
             }).concat([NEXT]),
           }).catch(ignore);
@@ -63,7 +64,16 @@
       event: function (s, event) {
         if (event.type !== "choice" || event.screen !== "hand" || !event.player) return;
         s.played[event.player] = event.choice.split("-")[0];
-        api.phone.show(event.player, { id: "hand", title: "Played", text: "Waiting for everyone else…", choices: [NEXT] }).catch(ignore);
+        // An update changes the hand in place: the played card stays marked,
+        // the others go grey.
+        var played = {};
+        played.title = "Played";
+        played.text = "Waiting for everyone else…";
+        (s.hands[event.player] || []).forEach(function (card, index) {
+          var id = card + "-" + index;
+          played["cards." + index + (id === event.choice ? ".picked" : ".disabled")] = true;
+        });
+        api.phone.update(event.player, played, "hand").catch(ignore);
       },
       draw: function (s) {
         if (!players.length) return emptyStage();
@@ -203,6 +213,8 @@
       event: function (s, event) {
         if (event.type !== "choice" || event.screen !== "vote") return;
         s.votes[event.phone] = { choice: event.choice, audience: event.audience };
+        var count = Object.keys(s.votes).length;
+        api.phone.update("all", { tally: count + (count === 1 ? " vote so far." : " votes so far.") }, "vote").catch(ignore);
       },
       draw: function (s) {
         var box = el("div");
@@ -425,6 +437,36 @@
         return grid;
       },
     },
+    // 10. Named actions: the lab declares boost, shield, and throttle in its
+    // gigacouch.json, and its ship layout binds buttons and a slider to them.
+    // Pads still play: A boosts, B shields, and the right stick is throttle.
+    {
+      title: "Named actions",
+      about: "The game names its own inputs, boost, shield, and throttle, and binds phone buttons to them. Presses play a sound and buzz on the phone itself, with no trip to the computer. Pads fall back to A, B, and the right stick.",
+      how: "Hold Boost or Shield, and slide the throttle.",
+      layout: "lab-ship",
+      draw: function () {
+        if (!players.length) return emptyStage();
+        var grid = el("div", "grid");
+        players.forEach(function (player) {
+          var tile = playerTile(player);
+          var throttle = api.input.axis(player.id, "throttle");
+          var steer = api.input.axis(player.id, "move");
+          var boost = api.input.held(player.id, "boost");
+          var shield = api.input.held(player.id, "shield");
+          tile.append(el("p", "pick", boost ? "Boost!" : shield ? "Shield up" : "Cruising"));
+          var bar = el("div", "bar");
+          var fill = el("i");
+          fill.style.width = Math.round(((throttle.x + 1) / 2) * 100) + "%";
+          bar.append(fill);
+          tile.append(el("p", "note", "Throttle"), bar);
+          tile.append(el("p", "note", "Steer " + steer.x.toFixed(2) + ", " + steer.y.toFixed(2)));
+          if (boost || shield) tile.style.borderColor = boost ? "var(--amber, #f5c16c)" : "var(--blue, #7cb7ff)";
+          grid.append(tile);
+        });
+        return grid;
+      },
+    },
   ];
 
   var state = {};
@@ -451,13 +493,14 @@
   function newVote(s) {
     var question = STATIONS[3].questions[s.round % STATIONS[3].questions.length];
     s.votes = {};
-    api.phone.show("all", {
+    // The lab's own "vote" view; the tally line updates as votes come in.
+    api.phone.show("all", "vote", {
       id: "vote",
-      title: question[0],
-      text: "Everyone votes: players and audience.",
-      choices: question[1].map(function (option, index) {
+      question: question[0],
+      options: question[1].map(function (option, index) {
         return { id: "o" + index, label: option, color: ["mint", "coral", "blue", "amber"][index] };
       }).concat([NEXT]),
+      tally: "No votes yet.",
     }).catch(ignore);
   }
 

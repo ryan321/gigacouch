@@ -130,20 +130,21 @@
 
   /* A game's private screen and questions sit over the controls. */
   .overlay { position: absolute; inset: 0; z-index: 4; background: var(--bg); overflow: auto; padding: 14px 16px 18px; }
-  #screen h2 { font-size: 20px; margin-bottom: 6px; }
-  #screen p { color: var(--muted); white-space: pre-wrap; margin-bottom: 10px; }
-  #screen img.art { display: block; max-width: 100%; max-height: 40vh; margin: 0 auto 12px; border-radius: 14px; }
+  #panel h2 { font-size: 20px; margin-bottom: 6px; }
+  #panel p { color: var(--muted); white-space: pre-wrap; margin-bottom: 10px; }
+  #panel img.art { display: block; max-width: 100%; max-height: 40vh; margin: 0 auto 12px; border-radius: 14px; }
   .choices { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; }
   .choice { font: inherit; text-align: left; color: var(--bg); background: var(--mint); border: 3px solid transparent; border-radius: 16px; padding: 12px 14px; min-height: 64px; font-weight: 700; font-size: 17px; }
   .choice small { display: block; font-weight: 500; font-size: 13px; opacity: 0.75; margin-top: 3px; }
   .choice img { display: block; width: 100%; border-radius: 10px; margin-bottom: 6px; }
+  .choice.disabled { opacity: 0.4; }
   .choice.picked { border-color: var(--ink); box-shadow: 0 0 0 3px var(--bg), 0 0 0 6px var(--ink); }
-  #ask form { display: grid; gap: 10px; max-width: 560px; margin: 0 auto; }
-  #ask label { font-weight: 700; font-size: 18px; }
-  #ask input, #ask textarea { font: inherit; font-size: 18px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; width: 100%; user-select: text; -webkit-user-select: text; }
-  #ask textarea { min-height: 96px; resize: none; }
-  #ask button { font: inherit; font-weight: 700; font-size: 17px; color: var(--bg); background: var(--mint); border: none; border-radius: 12px; padding: 12px; }
-  #ask button.later { color: var(--muted); background: transparent; border: 1px solid var(--line); font-weight: 600; }
+  #panel form { display: grid; gap: 10px; max-width: 560px; margin: 0 auto 10px; }
+  #panel label { font-weight: 700; font-size: 18px; }
+  #panel input, #panel textarea { font: inherit; font-size: 18px; color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 12px; width: 100%; user-select: text; -webkit-user-select: text; }
+  #panel textarea { min-height: 96px; resize: none; }
+  #panel form button { font: inherit; font-weight: 700; font-size: 17px; color: var(--bg); background: var(--mint); border: none; border-radius: 12px; padding: 12px; }
+  #panel form button.later { color: var(--muted); background: transparent; border: 1px solid var(--line); font-weight: 600; }
   #toast { position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%); z-index: 7; background: var(--panel); border: 1px solid var(--line); border-radius: 999px; padding: 8px 16px; font-size: 14px; }
 
   /* Drawing: the canvas and its color picker. */

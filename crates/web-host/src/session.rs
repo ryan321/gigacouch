@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use serde_json::json;
 use std::time::{Duration, Instant};
 
 pub const MAX_REQUEST_BYTES: u64 = 300 * 1024;
@@ -52,11 +53,40 @@ pub struct RawDevice {
     /// through as-is, with no dead zone and no rounding to a circle.
     #[serde(default)]
     pub absolute: bool,
+    /// Named actions a phone's layout drives, by name: held or not. Only
+    /// the actions the open game declares count.
+    #[serde(default)]
+    pub actions: std::collections::BTreeMap<String, bool>,
+    /// Named axes a phone's layout drives, by name.
+    #[serde(default)]
+    pub axes: std::collections::BTreeMap<String, NamedAxis>,
     /// Set by the host for phones: the player's photo and Home profile.
     #[serde(default, skip)]
     pub avatar: Option<String>,
     #[serde(default, skip)]
     pub profile: Option<String>,
+}
+
+/// One named axis from a phone: x and y from -1 to 1, and whether they are
+/// positions (a slider or touchpad) rather than stick tilt.
+#[derive(Debug, Clone, Copy, Deserialize, Default)]
+pub struct NamedAxis {
+    #[serde(default)]
+    pub x: f32,
+    #[serde(default)]
+    pub y: f32,
+    #[serde(default)]
+    pub absolute: bool,
+}
+
+/// An action a game declares in gigacouch.json: a button or an axis, and the
+/// standard key or stick a pad uses for it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ActionDef {
+    pub name: String,
+    pub axis: bool,
+    /// "south" … "start" for a button, "move" or "look" for an axis.
+    pub pad: Option<String>,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -107,6 +137,10 @@ pub struct SnapshotPlayer {
     pub profile: Option<String>,
     /// A phone that dropped and still holds its slot.
     pub away: bool,
+    /// The open game's named actions: a button's { held, pressed } or an
+    /// axis's { x, y }.
+    #[serde(skip_serializing_if = "serde_json::Map::is_empty")]
+    pub named: serde_json::Map<String, serde_json::Value>,
 }
 
 /// The five buttons every layout and pad maps onto: the four face buttons by
@@ -159,6 +193,17 @@ struct Tracked {
     leave: bool,
     east_since: Option<Instant>,
     slot: Option<usize>,
+    /// Named buttons held at the last update, for presses.
+    named: std::collections::BTreeMap<String, bool>,
+}
+
+/// A named action's state in a player's slot.
+#[derive(Clone, Copy, Default)]
+struct NamedState {
+    held: bool,
+    pressed: bool,
+    x: f32,
+    y: f32,
 }
 
 struct Slot {
@@ -177,6 +222,7 @@ struct Slot {
     profile: Option<String>,
     /// When a phone holding this slot dropped. The slot waits for it.
     away_since: Option<Instant>,
+    named: std::collections::BTreeMap<String, NamedState>,
 }
 
 pub struct Session {
@@ -185,6 +231,8 @@ pub struct Session {
     /// game asks for a maximum.
     slots: Vec<Option<Slot>>,
     limit: Option<usize>,
+    /// The open game's named actions.
+    actions: Vec<ActionDef>,
     menu_x: f32,
     menu_y: f32,
     menu_confirm: bool,
@@ -207,10 +255,22 @@ impl Session {
             tracked: Vec::new(),
             slots: Vec::new(),
             limit,
+            actions: Vec::new(),
             menu_x: 0.0,
             menu_y: 0.0,
             menu_confirm: false,
             menu_back: false,
+        }
+    }
+
+    /// The open game's named actions; empty on the shelf.
+    pub fn set_actions(&mut self, actions: Vec<ActionDef>) {
+        self.actions = actions;
+        for slot in self.slots.iter_mut().flatten() {
+            slot.named.clear();
+        }
+        for tracked in &mut self.tracked {
+            tracked.named.clear();
         }
     }
 
@@ -289,6 +349,12 @@ impl Session {
     }
 
     pub fn snapshot(&mut self) -> Snapshot {
+        let axis_names: Vec<String> = self
+            .actions
+            .iter()
+            .filter(|def| def.axis)
+            .map(|def| def.name.clone())
+            .collect();
         let mut players = Vec::new();
         for (index, slot) in self.slots.iter_mut().enumerate() {
             let Some(slot) = slot else {
@@ -310,6 +376,22 @@ impl Session {
                 avatar: slot.avatar.clone(),
                 profile: slot.profile.clone(),
                 away: slot.away_since.is_some(),
+                // Held and axes stay; a press is reported once.
+                named: slot
+                    .named
+                    .iter_mut()
+                    .map(|(name, state)| {
+                        let pressed = std::mem::take(&mut state.pressed);
+                        let state = NamedState { pressed, ..*state };
+                        let name = name.clone();
+                        let value = if axis_names.contains(&name) {
+                            json!({ "x": state.x, "y": state.y })
+                        } else {
+                            json!({ "held": state.held, "pressed": state.pressed })
+                        };
+                        (name, value)
+                    })
+                    .collect(),
                 movement: Move {
                     x: slot.move_x,
                     y: slot.move_y,
@@ -400,6 +482,7 @@ impl Session {
                 leave: back && device.leave,
                 east_since: None,
                 slot: returning,
+                named: std::collections::BTreeMap::new(),
             });
         }
         let position = self
@@ -457,6 +540,42 @@ impl Session {
             state.look_y = look_y;
             state.held = held;
             state.pressed.merge(rises);
+            // The open game's named actions: a phone's own value, or the
+            // standard key or stick a pad uses for it.
+            for def in &self.actions {
+                let entry = state.named.entry(def.name.clone()).or_default();
+                if def.axis {
+                    let (x, y) = match device.axes.get(&def.name) {
+                        Some(axis) if axis.absolute => absolute_move(axis.x, axis.y),
+                        Some(axis) => analog_move(axis.x, axis.y),
+                        None => match def.pad.as_deref() {
+                            Some("move") => (move_x, move_y),
+                            Some("look") => (look_x, look_y),
+                            _ => (0.0, 0.0),
+                        },
+                    };
+                    entry.x = x;
+                    entry.y = y;
+                } else {
+                    let now = device.actions.get(&def.name).copied().unwrap_or(
+                        match def.pad.as_deref() {
+                            Some("south") => held.south,
+                            Some("east") => held.east,
+                            Some("west") => held.west,
+                            Some("north") => held.north,
+                            Some("start") => held.start,
+                            _ => false,
+                        },
+                    );
+                    let before = self.tracked[position]
+                        .named
+                        .get(&def.name)
+                        .copied()
+                        .unwrap_or(false);
+                    entry.held = now;
+                    entry.pressed |= now && !before;
+                }
+            }
             if keyboard {
                 if jump_rise {
                     state.jump = true;
@@ -502,6 +621,21 @@ impl Session {
         self.tracked[position].west = device.west;
         self.tracked[position].north = device.north;
         self.tracked[position].start = device.start;
+        let named_now: std::collections::BTreeMap<String, bool> = self
+            .actions
+            .iter()
+            .filter(|def| !def.axis)
+            .map(|def| {
+                let slot_state = self.tracked[position]
+                    .slot
+                    .and_then(|index| self.slots.get(index))
+                    .and_then(Option::as_ref)
+                    .and_then(|slot| slot.named.get(&def.name))
+                    .map(|named| named.held);
+                (def.name.clone(), slot_state.unwrap_or(false))
+            })
+            .collect();
+        self.tracked[position].named = named_now;
         self.tracked[position].jump = device.jump;
         self.tracked[position].leave = device.leave;
         if slot.is_none() {
@@ -550,6 +684,7 @@ impl Session {
             avatar: device.avatar.clone(),
             profile: device.profile.clone(),
             away_since: None,
+            named: std::collections::BTreeMap::new(),
         });
         let slot = index;
         if let Some(tracked) = self

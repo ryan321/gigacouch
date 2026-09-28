@@ -64,6 +64,66 @@
       },
       "description": "How many people can play. Without max, everyone who joins gets to play; phones make dozens possible."
     },
+    "actions": {
+      "type": "object",
+      "maxProperties": 16,
+      "propertyNames": {
+        "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+        "not": {
+          "enum": [
+            "south",
+            "east",
+            "west",
+            "north",
+            "start",
+            "move",
+            "look",
+            "jump",
+            "leave",
+            "primary_action",
+            "secondary_action"
+          ]
+        }
+      },
+      "additionalProperties": {
+        "oneOf": [
+          {
+            "enum": [
+              "button",
+              "axis"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "enum": [
+                  "button",
+                  "axis"
+                ]
+              },
+              "pad": {
+                "enum": [
+                  "south",
+                  "east",
+                  "west",
+                  "north",
+                  "start",
+                  "move",
+                  "look"
+                ],
+                "description": "What a pad or keyboard uses instead: a key for a button, a stick for an axis."
+              }
+            }
+          }
+        ]
+      },
+      "description": "The game's own inputs by name, such as boost or throttle. Phone layouts bind buttons and axes to them, and games read them with GigaCouch.input like the standard ones. pad names the standard key or stick that stands in for it on pads and keyboards."
+    },
     "phone": {
       "type": "object",
       "additionalProperties": false,
@@ -145,13 +205,21 @@
                       ]
                     },
                     "key": {
-                      "enum": [
-                        "south",
-                        "east",
-                        "west",
-                        "north",
-                        "start"
-                      ]
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "south",
+                            "east",
+                            "west",
+                            "north",
+                            "start"
+                          ]
+                        },
+                        {
+                          "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+                        }
+                      ],
+                      "description": "A standard key, or one of the game's button actions."
                     },
                     "label": {
                       "type": "string",
@@ -171,10 +239,18 @@
                       ]
                     },
                     "axis": {
-                      "enum": [
-                        "move",
-                        "look"
-                      ]
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "move",
+                            "look"
+                          ]
+                        },
+                        {
+                          "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+                        }
+                      ],
+                      "description": "A standard stick, or one of the game's axis actions."
                     },
                     "dir": {
                       "enum": [
@@ -209,6 +285,31 @@
                       },
                       "minItems": 4,
                       "maxItems": 4
+                    },
+                    "feedback": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "minProperties": 1,
+                      "properties": {
+                        "sound": {
+                          "type": "string",
+                          "description": "A stock sound (click, tick, ding, success, fail, buzzer, coin, whoosh) or one of phone.sounds."
+                        },
+                        "rumble": {
+                          "enum": [
+                            "tap",
+                            "bump",
+                            "hit",
+                            "long",
+                            "double",
+                            "heartbeat"
+                          ]
+                        },
+                        "flash": {
+                          "type": "boolean"
+                        }
+                      },
+                      "description": "Played on the phone the moment the control is pressed, with no trip to the computer."
                     }
                   }
                 }
@@ -236,13 +337,21 @@
                       ]
                     },
                     "key": {
-                      "enum": [
-                        "south",
-                        "east",
-                        "west",
-                        "north",
-                        "start"
-                      ]
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "south",
+                            "east",
+                            "west",
+                            "north",
+                            "start"
+                          ]
+                        },
+                        {
+                          "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+                        }
+                      ],
+                      "description": "A standard key, or one of the game's button actions."
                     },
                     "label": {
                       "type": "string",
@@ -262,10 +371,18 @@
                       ]
                     },
                     "axis": {
-                      "enum": [
-                        "move",
-                        "look"
-                      ]
+                      "anyOf": [
+                        {
+                          "enum": [
+                            "move",
+                            "look"
+                          ]
+                        },
+                        {
+                          "pattern": "^[a-z0-9][a-z0-9-]{0,31}$"
+                        }
+                      ],
+                      "description": "A standard stick, or one of the game's axis actions."
                     },
                     "dir": {
                       "enum": [
@@ -300,6 +417,254 @@
                       },
                       "minItems": 4,
                       "maxItems": 4
+                    },
+                    "feedback": {
+                      "type": "object",
+                      "additionalProperties": false,
+                      "minProperties": 1,
+                      "properties": {
+                        "sound": {
+                          "type": "string",
+                          "description": "A stock sound (click, tick, ding, success, fail, buzzer, coin, whoosh) or one of phone.sounds."
+                        },
+                        "rumble": {
+                          "enum": [
+                            "tap",
+                            "bump",
+                            "hit",
+                            "long",
+                            "double",
+                            "heartbeat"
+                          ]
+                        },
+                        "flash": {
+                          "type": "boolean"
+                        }
+                      },
+                      "description": "Played on the phone the moment the control is pressed, with no trip to the computer."
+                    }
+                  }
+                }
+              }
+            }
+          }
+        },
+        "views": {
+          "type": "object",
+          "description": "The game's own panel views, by name: lists of text, image, choices, and text-input items shown above the controller with GigaCouch.phone.show(player, name, data). Any value can be {\"bind\": \"path\"} into the data. Names cannot be screen or ask, the built-in views.",
+          "propertyNames": {
+            "pattern": "^[a-z0-9-]{1,32}$",
+            "not": {
+              "enum": [
+                "screen",
+                "ask"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "items"
+            ],
+            "properties": {
+              "items": {
+                "type": "array",
+                "minItems": 1,
+                "maxItems": 12,
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "type"
+                  ],
+                  "properties": {
+                    "type": {
+                      "enum": [
+                        "text",
+                        "image",
+                        "choices",
+                        "text-input"
+                      ]
+                    },
+                    "style": {
+                      "enum": [
+                        "title",
+                        "body"
+                      ]
+                    },
+                    "text": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 1000
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "bind"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "bind": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$",
+                              "maxLength": 64
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "image": {
+                      "oneOf": [
+                        {
+                          "type": "string"
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "bind"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "bind": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$",
+                              "maxLength": 64
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "choices": {
+                      "oneOf": [
+                        {
+                          "type": "array",
+                          "maxItems": 12
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "bind"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "bind": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$",
+                              "maxLength": 64
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "id": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 32
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "bind"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "bind": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$",
+                              "maxLength": 64
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "prompt": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 120
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "bind"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "bind": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$",
+                              "maxLength": 64
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "placeholder": {
+                      "oneOf": [
+                        {
+                          "type": "string",
+                          "maxLength": 60
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "bind"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "bind": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$",
+                              "maxLength": 64
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "max": {
+                      "oneOf": [
+                        {
+                          "type": "integer",
+                          "minimum": 1,
+                          "maximum": 500
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "bind"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "bind": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$",
+                              "maxLength": 64
+                            }
+                          }
+                        }
+                      ]
+                    },
+                    "multiline": {
+                      "oneOf": [
+                        {
+                          "type": "boolean"
+                        },
+                        {
+                          "type": "object",
+                          "required": [
+                            "bind"
+                          ],
+                          "additionalProperties": false,
+                          "properties": {
+                            "bind": {
+                              "type": "string",
+                              "pattern": "^[A-Za-z0-9_-]+(\\.[A-Za-z0-9_-]+)*$",
+                              "maxLength": 64
+                            }
+                          }
+                        }
+                      ]
                     }
                   }
                 }

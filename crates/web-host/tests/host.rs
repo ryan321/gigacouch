@@ -1,6 +1,6 @@
 use couch_web_host::{
-    DEFAULT_PHONE_LAYOUT, DevicePost, Host, PHONE_LAYOUTS, PhoneListen, Session, WebPackage,
-    exchange, raw_exchange,
+    ActionDef, DEFAULT_PHONE_LAYOUT, DevicePost, Host, PhoneListen, Session, WebPackage, exchange,
+    phone_layouts, raw_exchange,
 };
 use serde_json::json;
 use std::path::PathBuf;
@@ -560,10 +560,16 @@ fn post_devices(host: &Host) {
 
 /// The next message from the host that contains `needle`. The host sends a
 /// hello on connect and pushes changes as they happen, so replies can queue.
-fn next_with<S: std::io::Read + std::io::Write>(
-    socket: &mut tungstenite::WebSocket<S>,
+fn next_with(
+    socket: &mut tungstenite::WebSocket<tungstenite::stream::MaybeTlsStream<std::net::TcpStream>>,
     needle: &str,
 ) -> String {
+    // A message that never comes fails the test instead of hanging it.
+    if let tungstenite::stream::MaybeTlsStream::Plain(stream) = socket.get_ref() {
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+    }
     for _ in 0..50 {
         let message = socket.read().expect("phone socket");
         if let Ok(text) = message.to_text()
@@ -703,24 +709,87 @@ fn a_phone_joins_as_a_player_and_leaves_when_it_disconnects() {
 }
 
 #[test]
-fn the_phone_page_draws_exactly_the_layouts_the_host_knows() {
+fn widgets_and_layouts_have_one_source_of_truth() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let widgets: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(root.join("src/assets/phone/widgets.json")).unwrap(),
+    )
+    .unwrap();
     let script = fs::read_to_string(root.join("src/assets/pad.js")).unwrap();
-    let table = &script
-        [script.find("var LAYOUTS = {").unwrap()..script.find("var DEFAULT_LAYOUT").unwrap()];
-    let drawn: Vec<&str> = table
-        .lines()
-        .filter_map(|line| {
-            let line = line.trim();
-            line.strip_prefix('"')
-                .and_then(|rest| rest.strip_suffix("\": {"))
-        })
+
+    // The pad has a renderer for every widget a layout can use.
+    let registry = &script[script.find("var WIDGETS = {").unwrap()..];
+    let registry = &registry[..registry.find("};").unwrap()];
+    let layout_widgets: Vec<&str> = widgets["widgets"]
+        .as_object()
+        .unwrap()
+        .iter()
+        .filter(|(_, rule)| rule["layout"] != false)
+        .map(|(name, _)| name.as_str())
         .collect();
+    for name in &layout_widgets {
+        assert!(
+            registry.contains(&format!("{name}:")),
+            "pad.js has no renderer for {name}"
+        );
+    }
+
+    // The package schema allows exactly those widgets, keys, and colors.
+    let schema: serde_json::Value = serde_json::from_str(
+        &fs::read_to_string(root.join("../../schemas/web-package.schema.json")).unwrap(),
+    )
+    .unwrap();
+    let control = &schema["properties"]["phone"]["properties"]["layouts"]["additionalProperties"]["properties"]
+        ["landscape"]["items"]["properties"];
+    let mut schema_types: Vec<&str> = control["type"]["enum"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|v| v.as_str().unwrap())
+        .collect();
+    let mut wanted = layout_widgets.clone();
+    schema_types.sort_unstable();
+    wanted.sort_unstable();
     assert_eq!(
-        drawn, PHONE_LAYOUTS,
-        "pad.js and PHONE_LAYOUTS must list the same layouts"
+        schema_types, wanted,
+        "schemas/web-package.schema.json control types"
     );
+    assert_eq!(control["key"]["anyOf"][0]["enum"], widgets["keys"]);
+    assert_eq!(control["color"]["enum"], widgets["colors"]);
+
+    // The layouts the host knows are the ones layouts.json lists, with the
+    // default first; the pad gets them filled in from that file.
+    assert_eq!(phone_layouts()[0], DEFAULT_PHONE_LAYOUT);
+    assert!(script.contains("var LAYOUTS = /*LAYOUTS*/{};"));
     assert!(script.contains(&format!("var DEFAULT_LAYOUT = \"{DEFAULT_PHONE_LAYOUT}\"")));
+}
+
+#[test]
+fn the_served_pad_carries_every_built_in_layout() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = phone_home(dir.path());
+    let phone = format!("http://127.0.0.1:{}", host.phone_port().unwrap());
+    let path = phones(&host)["join_url"]
+        .as_str()
+        .unwrap()
+        .trim_start_matches(&phone)
+        .to_string();
+    let (status, script) = exchange(&phone, "GET", &format!("{path}/pad.js"), None);
+    assert_eq!(status, 200);
+    assert!(
+        !script.contains("/*LAYOUTS*/") && !script.contains("/*WIDGETS*/"),
+        "filled in"
+    );
+    for name in phone_layouts() {
+        assert!(
+            script.contains(&format!("\"{name}\": {{")),
+            "served pad lacks {name}"
+        );
+    }
+    assert!(
+        script.contains("\"digital\": true"),
+        "the widget rules are in the pad"
+    );
 }
 
 #[test]
@@ -1103,7 +1172,7 @@ fn a_game_switches_the_phone_layout_while_it_runs() {
     assert_eq!(info["layout"], "stick-2");
     assert_eq!(
         info["layouts"].as_array().unwrap().len(),
-        PHONE_LAYOUTS.len()
+        phone_layouts().len()
     );
 
     assert_eq!(set("racing").0, 200);
@@ -1491,7 +1560,8 @@ fn the_phone_lab_ships_its_own_layouts_and_images() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../runtimes/web/examples");
     let lab = WebPackage::read(&root.join("phone-lab")).unwrap();
     assert_eq!(lab.phone_layout(), "lab-pad");
-    assert_eq!(lab.phone_layouts().len(), 4);
+    assert_eq!(lab.phone_layouts().len(), 5);
+    assert_eq!(lab.actions().len(), 3);
     assert_eq!(lab.phone_images().len(), 5);
     assert_eq!(lab.players_max(), None);
 }
@@ -1597,11 +1667,24 @@ fn a_private_screen_reaches_one_player_and_its_choice_comes_back() {
     );
     assert_eq!(status, 200, "{body}");
     assert!(body.contains("\"phones\":1"));
+    // The screen arrives as the built-in "screen" view, filled in.
     let shown: serde_json::Value =
-        serde_json::from_str(&next_with(&mut ada, "\"screen\":{")).unwrap();
-    assert_eq!(shown["screen"]["title"], "Your hand");
+        serde_json::from_str(&next_with(&mut ada, "\"panel\":{")).unwrap();
+    let panel = &shown["panel"];
+    assert_eq!(panel["view"], "screen");
+    assert_eq!(panel["id"], "hand");
+    assert_eq!(
+        panel["items"][0],
+        json!({"type": "text", "style": "title", "text": "Your hand"})
+    );
+    let choices = panel["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["type"] == "choices")
+        .unwrap();
     assert!(
-        shown["screen"]["choices"][0]["image"]
+        choices["choices"][0]["image"]
             .as_str()
             .unwrap()
             .contains("/image/")
@@ -1893,4 +1976,408 @@ fn a_phone_links_to_a_home_person_takes_a_photo_and_starts_a_game() {
     next_with(&mut phone, "\"notice\"");
     let (_, remote) = exchange(host.origin(), "GET", "/__gigacouch/v1/home/remote", None);
     assert!(remote.contains("\"open\":null"), "{remote}");
+}
+
+// ---- Phone views: named views, data, and updates -------------------------------
+
+#[test]
+fn a_package_checks_its_own_views() {
+    let dir = tempfile::tempdir().unwrap();
+    package(dir.path(), 4, "web/index.html");
+    let manifest = dir.path().join("gigacouch.json");
+    let write = |views: serde_json::Value| -> Result<WebPackage, String> {
+        let mut value: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(&manifest).unwrap()).unwrap();
+        value["phone"] = json!({ "views": views });
+        fs::write(&manifest, value.to_string()).unwrap();
+        WebPackage::read(dir.path()).map_err(|error| error.to_string())
+    };
+    let good = json!({"hand": {"items": [{"type": "text", "text": {"bind": "title"}}, {"type": "choices", "choices": {"bind": "cards"}}]}});
+    assert_eq!(write(good).unwrap().phone_views().len(), 1);
+    for (views, expected) in [
+        (
+            json!({"screen": {"items": [{"type": "text", "text": "x"}]}}),
+            "not a built-in view",
+        ),
+        (
+            json!({"bad": {"items": [{"type": "stick"}]}}),
+            "each item's type",
+        ),
+        (
+            json!({"bad": {"items": [{"type": "text"}]}}),
+            "text is required",
+        ),
+        (
+            json!({"bad": {"items": [{"type": "text", "text": {"bind": "../etc"}}]}}),
+            "bind path",
+        ),
+    ] {
+        let error = write(views.clone()).unwrap_err();
+        assert!(error.contains(expected), "{views}: {error}");
+    }
+}
+
+#[test]
+fn a_named_view_is_filled_in_per_player_and_updated_in_place() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = lab_home(dir.path());
+    let mut ada = phone_socket(&host, "adaview001");
+    let mut bob = phone_socket(&host, "bobview001");
+    join_player(&host, &mut ada, "Ada");
+    join_player(&host, &mut bob, "Bob");
+    exchange(host.origin(), "GET", "/play/phone-lab/", None);
+
+    // The lab's own "hand" view, with different cards for each player.
+    let hand = |cards: serde_json::Value| json!({"title": "Your hand", "text": "Play one", "cards": cards});
+    let (status, body) = post_json(
+        &host,
+        "/__gigacouch/v1/phone/view",
+        json!({"player": 1, "view": "hand", "data": hand(json!([{"id": "sun-0", "label": "Sun", "image": "sun"}, {"id": "moon-1", "label": "Moon"}]))}),
+    );
+    assert_eq!(status, 200, "{body}");
+    post_json(
+        &host,
+        "/__gigacouch/v1/phone/view",
+        json!({"player": 2, "view": "hand", "data": hand(json!([{"id": "star-0", "label": "Star"}]))}),
+    );
+    let ada_panel: serde_json::Value =
+        serde_json::from_str(&next_with(&mut ada, "\"view\":\"hand\"")).unwrap();
+    assert!(ada_panel.to_string().contains("Sun") && !ada_panel.to_string().contains("Star"));
+    next_with(&mut bob, "\"Star\"");
+
+    // An update changes part of the data; the phone gets the refreshed panel.
+    let (status, body) = post_json(
+        &host,
+        "/__gigacouch/v1/phone/update",
+        json!({"player": 1, "view": "hand", "set": {"cards.0.picked": true, "cards.1.disabled": true, "text": "Waiting"}}),
+    );
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"phones\":1"));
+    let updated: serde_json::Value =
+        serde_json::from_str(&next_with(&mut ada, "\"Waiting\"")).unwrap();
+    let choices = updated["panel"]["items"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|item| item["type"] == "choices")
+        .unwrap()
+        .clone();
+    assert_eq!(choices["choices"][0]["picked"], true);
+    assert_eq!(choices["choices"][1]["disabled"], true);
+
+    // An update aimed at another view leaves this one alone.
+    let (_, body) = post_json(
+        &host,
+        "/__gigacouch/v1/phone/update",
+        json!({"player": "all", "view": "vote", "set": {"tally": "x"}}),
+    );
+    assert!(body.contains("\"phones\":0"), "{body}");
+
+    for bad in [
+        json!({"player": 1, "set": {"cards.9.picked": true}}),
+        json!({"player": 1, "set": {"a..b": 1}}),
+        json!({"player": 1, "set": {"cards.0.image": "not-declared"}}),
+    ] {
+        assert_eq!(
+            post_json(&host, "/__gigacouch/v1/phone/update", bad.clone()).0,
+            400,
+            "{bad}"
+        );
+    }
+    assert_eq!(
+        post_json(
+            &host,
+            "/__gigacouch/v1/phone/view",
+            json!({"player": 1, "view": "nope"})
+        )
+        .0,
+        400
+    );
+    let big = "x".repeat(20 * 1024);
+    assert_eq!(
+        post_json(
+            &host,
+            "/__gigacouch/v1/phone/view",
+            json!({"player": 1, "view": "hand", "data": {"title": big}})
+        )
+        .0,
+        400
+    );
+
+    // A view written out by the game works the same way, and hide clears it.
+    let inline = json!({"id": "note", "items": [{"type": "text", "style": "title", "text": {"bind": "headline"}}]});
+    assert_eq!(
+        post_json(
+            &host,
+            "/__gigacouch/v1/phone/view",
+            json!({"player": 2, "view": inline, "data": {"headline": "Hello Bob"}})
+        )
+        .0,
+        200
+    );
+    next_with(&mut bob, "\"Hello Bob\"");
+    assert_eq!(
+        post_json(
+            &host,
+            "/__gigacouch/v1/phone/view",
+            json!({"player": 2, "view": null})
+        )
+        .0,
+        200
+    );
+    next_with(&mut bob, "\"panel\":null");
+}
+
+#[test]
+fn a_typed_answer_counts_only_while_the_panel_asks_for_one() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = lab_home(dir.path());
+    let mut ada = phone_socket(&host, "adaview002");
+    join_player(&host, &mut ada, "Ada");
+    exchange(host.origin(), "GET", "/play/phone-lab/", None);
+    let form = json!({"items": [{"type": "text", "text": "Name your team"}, {"type": "text-input", "id": "team", "prompt": "Team name", "max": 12}]});
+    assert_eq!(
+        post_json(
+            &host,
+            "/__gigacouch/v1/phone/view",
+            json!({"player": 1, "view": form})
+        )
+        .0,
+        200
+    );
+    next_with(&mut ada, "\"Team name\"");
+    say(
+        &mut ada,
+        json!({"kind": "event", "event": {"type": "text", "text": "The Couch Potatoes"}}),
+    );
+    let mut events = Vec::new();
+    wait_for("the answer", || {
+        events.extend(
+            snapshot_json(&host)["phone_events"]
+                .as_array()
+                .unwrap()
+                .clone(),
+        );
+        !events.is_empty()
+    });
+    assert_eq!(events[0]["ask"], "team");
+    assert_eq!(
+        events[0]["text"], "The Couch Po",
+        "cut to the view's 12-character max"
+    );
+
+    // With the question gone, text is dropped.
+    post_json(
+        &host,
+        "/__gigacouch/v1/phone/view",
+        json!({"player": 1, "view": null}),
+    );
+    next_with(&mut ada, "\"panel\":null");
+    say(
+        &mut ada,
+        json!({"kind": "event", "event": {"type": "text", "text": "late"}}),
+    );
+    std::thread::sleep(Duration::from_millis(150));
+    assert!(
+        snapshot_json(&host)["phone_events"]
+            .as_array()
+            .unwrap()
+            .is_empty()
+    );
+}
+
+#[test]
+fn a_package_declares_named_actions_and_binds_them() {
+    let dir = tempfile::tempdir().unwrap();
+    package(dir.path(), 4, "web/index.html");
+    let manifest = dir.path().join("gigacouch.json");
+    let write =
+        |actions: serde_json::Value, phone: serde_json::Value| -> Result<WebPackage, String> {
+            let mut value: serde_json::Value =
+                serde_json::from_str(&fs::read_to_string(&manifest).unwrap()).unwrap();
+            value["actions"] = actions;
+            value["phone"] = phone;
+            fs::write(&manifest, value.to_string()).unwrap();
+            WebPackage::read(dir.path()).map_err(|error| error.to_string())
+        };
+    let ship = json!({"layout": "ship", "layouts": {"ship": {"landscape": [
+        {"type": "button", "key": "boost", "label": "Boost", "rect": [0, 0, 0.5, 1],
+         "feedback": {"sound": "coin", "rumble": "double", "flash": true}},
+        {"type": "slider", "axis": "throttle", "rect": [0.5, 0, 0.5, 1]}
+    ]}}});
+    let package = write(
+        json!({"boost": {"type": "button", "pad": "south"}, "throttle": "axis"}),
+        ship.clone(),
+    )
+    .unwrap();
+    let names: Vec<_> = package
+        .actions()
+        .iter()
+        .map(|action| (action.name.as_str(), action.axis, action.pad.as_deref()))
+        .collect();
+    assert_eq!(
+        names,
+        [("boost", false, Some("south")), ("throttle", true, None)]
+    );
+    // Feedback reaches the phone ready to play: the rumble preset is its pattern.
+    let button = &package.phone_layouts()["ship"]["landscape"][0];
+    assert_eq!(button["key"], "boost");
+    assert_eq!(
+        button["feedback"],
+        json!({"sound": "coin", "rumble": [40, 70, 40], "flash": true})
+    );
+
+    for (actions, phone, expected) in [
+        (json!({"jump": "button"}), json!({}), "not a standard key"),
+        (json!({"Boost!": "button"}), json!({}), "lowercase name"),
+        (
+            json!({"boost": "trigger"}),
+            json!({}),
+            "\"button\" or an \"axis\"",
+        ),
+        (
+            json!({"boost": {"type": "button", "pad": "look"}}),
+            json!({}),
+            "pad is south, east",
+        ),
+        (
+            json!({"throttle": {"type": "axis", "pad": "south"}}),
+            json!({}),
+            "pad is move or look",
+        ),
+        // A button can't bind an axis action, or an undeclared one.
+        (
+            json!({"boost": "axis", "throttle": "axis"}),
+            ship.clone(),
+            "button actions",
+        ),
+        (json!({"boost": "button"}), ship.clone(), "axis actions"),
+        (
+            json!({}),
+            json!({"layouts": {"x": {"landscape": [{"type": "button", "key": "south", "label": "A",
+                "rect": [0, 0, 1, 1], "feedback": {"sound": "kazoo"}}]}}}),
+            "not a stock sound",
+        ),
+        (
+            json!({}),
+            json!({"layouts": {"x": {"landscape": [{"type": "button", "key": "south", "label": "A",
+                "rect": [0, 0, 1, 1], "feedback": {"rumble": "earthquake"}}]}}}),
+            "not a rumble preset",
+        ),
+    ] {
+        let error = write(actions.clone(), phone).unwrap_err();
+        assert!(error.contains(expected), "{actions}: {error}");
+    }
+    let many: serde_json::Map<String, serde_json::Value> = (0..17)
+        .map(|index| (format!("act{index}"), json!("button")))
+        .collect();
+    let error = write(serde_json::Value::Object(many), json!({})).unwrap_err();
+    assert!(error.contains("at most 16"), "{error}");
+}
+
+#[test]
+fn named_actions_fall_back_to_the_pad_and_report_presses_once() {
+    let mut session = Session::new(4);
+    session.set_actions(vec![
+        ActionDef {
+            name: "boost".into(),
+            axis: false,
+            pad: Some("west".into()),
+        },
+        ActionDef {
+            name: "shield".into(),
+            axis: false,
+            pad: None,
+        },
+        ActionDef {
+            name: "throttle".into(),
+            axis: true,
+            pad: Some("look".into()),
+        },
+    ]);
+    let now = Instant::now();
+    // A pad has no named inputs: boost reads West and throttle the right stick.
+    let pad = |west: bool, look_x: f32| -> DevicePost {
+        serde_json::from_value(json!({"devices": [{
+            "id": "pad:1", "kind": "pad", "name": "Pad", "family": "xbox",
+            "south": true, "west": west, "analog": true,
+            "move": {"x": 0, "y": 0}, "look": {"x": look_x, "y": 0}
+        }]}))
+        .unwrap()
+    };
+    session.apply(pad(false, 0.0), now);
+    let _ = session.snapshot();
+    session.apply(pad(true, 1.0), now);
+    let first = serde_json::to_value(session.snapshot()).unwrap();
+    let named = &first["players"][0]["named"];
+    assert_eq!(named["boost"], json!({"held": true, "pressed": true}));
+    assert_eq!(named["shield"], json!({"held": false, "pressed": false}));
+    assert!(named["throttle"]["x"].as_f64().unwrap() > 0.9);
+    session.apply(pad(true, 0.0), now);
+    let second = serde_json::to_value(session.snapshot()).unwrap();
+    assert_eq!(
+        second["players"][0]["named"]["boost"],
+        json!({"held": true, "pressed": false}),
+        "a press is reported once"
+    );
+
+    // A phone sends them by name; a slider's throttle keeps small values.
+    // Its first frame only joins, like A on a pad.
+    session.apply(phone_device(json!({"south": true})), now);
+    session.apply(
+        phone_device(json!({"south": true, "actions": {"shield": true},
+            "axes": {"throttle": {"x": 0.1, "y": 0, "absolute": true}}})),
+        now,
+    );
+    let third = serde_json::to_value(session.snapshot()).unwrap();
+    let phone = third["players"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|player| player["kind"] == "phone")
+        .unwrap()
+        .clone();
+    assert_eq!(phone["named"]["shield"]["held"], true);
+    assert_eq!(phone["named"]["boost"]["held"], false);
+    assert!((phone["named"]["throttle"]["x"].as_f64().unwrap() - 0.1).abs() < 1e-6);
+
+    // The shelf has no actions, so snapshots leave them out.
+    session.set_actions(Vec::new());
+    let shelf = serde_json::to_value(session.snapshot()).unwrap();
+    assert!(shelf["players"][0].get("named").is_none());
+}
+
+#[test]
+fn a_phone_s_named_actions_reach_the_open_game() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = lab_home(dir.path());
+    let mut socket = phone_socket(&host, "shipphone01");
+    join_player(&host, &mut socket, "Ada");
+    let (status, _) = exchange(host.origin(), "GET", "/play/phone-lab/", None);
+    assert_eq!(status, 200);
+    let (status, _) = post_json(
+        &host,
+        "/__gigacouch/v1/phone/layout",
+        json!({"layout": "lab-ship"}),
+    );
+    assert_eq!(status, 200);
+    let pushed: serde_json::Value =
+        serde_json::from_str(&next_with(&mut socket, "\"layout\":\"lab-ship\"")).unwrap();
+    let boost = &pushed["layout_spec"]["landscape"][2];
+    assert_eq!(boost["key"], "boost");
+    assert_eq!(boost["feedback"]["rumble"], json!([90]));
+
+    say(
+        &mut socket,
+        json!({"name": "Ada", "actions": {"boost": true, "not-declared": true},
+            "axes": {"throttle": {"x": 0.5, "y": 0, "absolute": true}}}),
+    );
+    wait_for("boost to reach the game", || {
+        post_devices(&host);
+        snapshot_json(&host)["players"][0]["named"]["boost"]["held"] == true
+    });
+    let snapshot = snapshot_json(&host);
+    let named = &snapshot["players"][0]["named"];
+    assert!((named["throttle"]["x"].as_f64().unwrap() - 0.5).abs() < 1e-6);
+    assert!(named.get("not-declared").is_none());
 }

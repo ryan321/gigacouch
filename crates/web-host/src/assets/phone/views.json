@@ -1,0 +1,17 @@
+{
+  "screen": {
+    "about": "A private screen: a title, one of the game's images, text, and choices. GigaCouch.phone.show(player, { title, text, image, choices }) uses it.",
+    "items": [
+      {"type": "text", "style": "title", "text": {"bind": "title"}},
+      {"type": "image", "image": {"bind": "image"}},
+      {"type": "text", "style": "body", "text": {"bind": "text"}},
+      {"type": "choices", "choices": {"bind": "choices"}}
+    ]
+  },
+  "ask": {
+    "about": "A question answered on the phone's keyboard. GigaCouch.phone.ask(player, { id, prompt, placeholder, max, multiline }) uses it.",
+    "items": [
+      {"type": "text-input", "id": {"bind": "id"}, "prompt": {"bind": "prompt"}, "placeholder": {"bind": "placeholder"}, "max": {"bind": "max"}, "multiline": {"bind": "multiline"}}
+    ]
+  }
+}

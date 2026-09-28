@@ -1,0 +1,233 @@
+{
+  "version": 1,
+  "about": "Every widget a phone view can use. The host checks views against these rules (phones/views.rs), the pad draws each type with its renderer, and the package schema and docs follow this file. Positions are fractions of the phone's control area: a rect is [x, y, width, height]; a point is x, y and a size as a fraction of the area's shorter side. A button's key and an axis name a standard key (south, east, west, north, start) or stick (move, look), or one of the game's declared actions. feedback is { sound, rumble, flash }, played on the phone at the press.",
+  "keys": [
+    "south",
+    "east",
+    "west",
+    "north",
+    "start"
+  ],
+  "colors": [
+    "mint",
+    "blue",
+    "amber",
+    "coral",
+    "panel"
+  ],
+  "widgets": {
+    "stick": {
+      "about": "A floating stick: it appears where the thumb lands.",
+      "output": "input",
+      "place": "rect",
+      "props": {
+        "axis": {
+          "action": "axis",
+          "default": "move"
+        },
+        "hint": {
+          "text": 60
+        }
+      }
+    },
+    "dpad": {
+      "about": "An eight-way d-pad. It sends whole steps on move.",
+      "output": "input",
+      "place": "point",
+      "digital": true,
+      "props": {
+        "hint": {
+          "text": 60
+        }
+      }
+    },
+    "button": {
+      "about": "A button bound to one of the five keys.",
+      "output": "input",
+      "place": "point-or-rect",
+      "props": {
+        "key": {
+          "action": "button",
+          "required": true
+        },
+        "label": {
+          "text": 16,
+          "required": true
+        },
+        "color": {
+          "enum": [
+            "mint",
+            "blue",
+            "amber",
+            "coral",
+            "panel"
+          ]
+        },
+        "small": {
+          "bool": true
+        },
+        "hint": {
+          "text": 60
+        },
+        "feedback": {
+          "feedback": true
+        }
+      }
+    },
+    "arrow": {
+      "about": "A steering arrow: holding it sets move x to its direction.",
+      "output": "input",
+      "place": "point",
+      "digital": true,
+      "props": {
+        "dir": {
+          "enum": [
+            -1,
+            1
+          ],
+          "required": true
+        },
+        "label": {
+          "text": 16,
+          "required": true
+        },
+        "hint": {
+          "text": 60
+        },
+        "axis": {
+          "action": "axis",
+          "default": "move"
+        },
+        "feedback": {
+          "feedback": true
+        }
+      }
+    },
+    "slider": {
+      "about": "A slider that stays where it is left. It sends its position on move x.",
+      "output": "input",
+      "place": "rect",
+      "absolute": true,
+      "props": {
+        "hint": {
+          "text": 60
+        },
+        "axis": {
+          "action": "axis",
+          "default": "move"
+        }
+      }
+    },
+    "touchpad": {
+      "about": "A touchpad: the finger's position on look, kept where it lifts.",
+      "output": "input",
+      "place": "rect",
+      "absolute": true,
+      "props": {
+        "hint": {
+          "text": 60
+        },
+        "axis": {
+          "action": "axis",
+          "default": "look"
+        }
+      }
+    },
+    "canvas": {
+      "about": "A drawing canvas. Strokes go to the game as events.",
+      "output": "events",
+      "place": "rect",
+      "props": {
+        "hint": {
+          "text": 60
+        }
+      }
+    },
+    "palette": {
+      "about": "Pen colors and Clear for a canvas.",
+      "output": "events",
+      "place": "rect",
+      "props": {
+        "hint": {
+          "text": 60
+        }
+      }
+    },
+    "text": {
+      "about": "A title or a paragraph.",
+      "output": "display",
+      "layout": false,
+      "props": {
+        "text": {
+          "text": 1000,
+          "bindable": true,
+          "required": true
+        },
+        "style": {
+          "enum": [
+            "title",
+            "body"
+          ],
+          "default": "body"
+        }
+      }
+    },
+    "image": {
+      "about": "One of the game's images, from phone.images.",
+      "output": "display",
+      "layout": false,
+      "props": {
+        "image": {
+          "image": true,
+          "bindable": true,
+          "required": true
+        }
+      }
+    },
+    "choices": {
+      "about": "Buttons a player taps; each tap is an event. Each choice: id, label, and optionally detail, color, image, action, disabled, picked.",
+      "output": "events",
+      "layout": false,
+      "props": {
+        "choices": {
+          "choices": true,
+          "bindable": true,
+          "required": true
+        }
+      }
+    },
+    "text-input": {
+      "about": "A question typed on the phone's keyboard; the answer is an event.",
+      "output": "events",
+      "layout": false,
+      "props": {
+        "id": {
+          "id": true,
+          "bindable": true,
+          "required": true
+        },
+        "prompt": {
+          "text": 120,
+          "bindable": true,
+          "required": true
+        },
+        "placeholder": {
+          "text": 60,
+          "bindable": true
+        },
+        "max": {
+          "number": [
+            1,
+            500
+          ],
+          "bindable": true,
+          "default": 80
+        },
+        "multiline": {
+          "bool": true,
+          "bindable": true
+        }
+      }
+    }
+  }
+}

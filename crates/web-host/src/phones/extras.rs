@@ -6,9 +6,10 @@
 //! Everything a game sends to a phone is checked here and drawn by the pad
 //! from data. No game code runs on a phone.
 
+use super::views::{layout_keys, phone_colors, phone_layouts};
 use super::{PhoneHub, device_id};
 use crate::State;
-use crate::package::{GameImage, LAYOUT_KEYS, MAX_IMAGE_BYTES, PHONE_COLORS, PHONE_LAYOUTS};
+use crate::package::{GameImage, MAX_IMAGE_BYTES};
 use serde_json::{Map, Value, json};
 use std::{
     collections::{HashMap, HashSet, VecDeque},
@@ -22,10 +23,7 @@ use std::{
 const MAX_EVENTS: usize = 2000;
 /// A phone photo: a small JPEG the pad makes before sending.
 pub(crate) const MAX_AVATAR_BYTES: usize = 200 * 1024;
-const MAX_CHOICES: usize = 12;
 const MAX_STROKE_POINTS: usize = 128;
-/// Phone actions a game's choice may start. The pad does them itself.
-const PHONE_ACTIONS: &[&str] = &["photo", "profile", "audience"];
 
 /// Who a game's message goes to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -53,10 +51,12 @@ pub(crate) struct Extras {
     /// Where photos and profile links are kept: next to the Home profiles.
     data_dir: Option<PathBuf>,
     events: Mutex<VecDeque<Value>>,
-    /// What the game last showed, asked, and labeled on each phone, so a
-    /// phone that reconnects gets it back.
-    screens: Mutex<HashMap<String, Value>>,
-    asks: Mutex<HashMap<String, Value>>,
+    /// The panel view each phone shows, with its data, so updates change it
+    /// and a phone that reconnects gets it back. See `panels.rs`.
+    pub(crate) panels: Mutex<HashMap<String, super::panels::Shown>>,
+    /// The open game's own views, already checked.
+    pub(crate) views: Mutex<Map<String, Value>>,
+    /// The words the game put on each phone's buttons.
     labels: Mutex<HashMap<String, Value>>,
     /// Phone to the Home person it linked to: (id, name).
     profiles: Mutex<HashMap<String, (String, String)>>,
@@ -95,8 +95,8 @@ impl Extras {
         Self {
             data_dir,
             events: Mutex::new(VecDeque::new()),
-            screens: Mutex::new(HashMap::new()),
-            asks: Mutex::new(HashMap::new()),
+            panels: Mutex::new(HashMap::new()),
+            views: Mutex::new(Map::new()),
             labels: Mutex::new(HashMap::new()),
             profiles: Mutex::new(profiles),
             avatars: Mutex::new(avatars),
@@ -146,7 +146,12 @@ impl PhoneHub {
 
     /// The open game's own images and layouts. Phones hear the image list at
     /// once so they can fetch them before a screen shows one.
-    pub(crate) fn set_game_extras(&self, images: &[GameImage], layouts: &Map<String, Value>) {
+    pub(crate) fn set_game_extras(
+        &self,
+        images: &[GameImage],
+        layouts: &Map<String, Value>,
+        views: &Map<String, Value>,
+    ) {
         let resolved: Vec<(GameImage, String)> = images
             .iter()
             .filter_map(|image| {
@@ -161,6 +166,7 @@ impl PhoneHub {
             .collect();
         *self.extras.images.lock().expect("images") = resolved;
         *self.extras.layouts.lock().expect("layouts") = layouts.clone();
+        *self.extras.views.lock().expect("views") = views.clone();
         self.push_all(&json!({ "images": self.image_urls() }));
     }
 
@@ -169,10 +175,10 @@ impl PhoneHub {
     pub(crate) fn clear_game_extras(&self) {
         self.extras.images.lock().expect("images").clear();
         self.extras.layouts.lock().expect("layouts").clear();
-        self.extras.screens.lock().expect("screens").clear();
-        self.extras.asks.lock().expect("asks").clear();
+        self.extras.panels.lock().expect("panels").clear();
+        self.extras.views.lock().expect("views").clear();
         self.extras.labels.lock().expect("labels").clear();
-        self.push_all(&json!({ "images": {}, "screen": null, "ask": null, "labels": null }));
+        self.push_all(&json!({ "images": {}, "panel": null, "labels": null }));
     }
 
     pub(crate) fn image_urls(&self) -> Value {
@@ -203,7 +209,7 @@ impl PhoneHub {
 
     /// Whether a layout name is built in or one of the open game's.
     pub(crate) fn known_layout(&self, name: &str) -> bool {
-        PHONE_LAYOUTS.contains(&name)
+        phone_layouts().contains(&name)
             || self
                 .extras
                 .layouts
@@ -260,40 +266,31 @@ impl PhoneHub {
 
     // ---- What a game sends to phones ----------------------------------------
 
-    /// A private screen: text, an image, and choices a player can tap.
-    /// `null` takes it away.
+    /// A private screen: the built-in "screen" view with the game's title,
+    /// text, image, and choices as its data. `null` takes it away.
     pub(crate) fn show(
         &self,
         state: &State,
         target: Target,
         screen: &Value,
     ) -> Result<usize, String> {
-        let clean = if screen.is_null() {
+        let view = if screen.is_null() {
             Value::Null
         } else {
-            self.clean_screen(screen)?
+            json!("screen")
         };
-        Ok(self.send_kept(state, target, "screen", &self.extras.screens, clean))
+        self.show_view(state, target, &view, screen)
     }
 
-    /// A question answered by typing on the phone. `null` takes it away.
+    /// A question typed on the phone: the built-in "ask" view. `null` takes
+    /// it away.
     pub(crate) fn ask(&self, state: &State, target: Target, ask: &Value) -> Result<usize, String> {
-        let clean = if ask.is_null() {
+        let view = if ask.is_null() {
             Value::Null
         } else {
-            let id = clean_id(&ask["id"])
-                .ok_or("ask.id is 1–32 letters, digits, dashes, or underscores")?;
-            let prompt = clean_text(&ask["prompt"], 120).ok_or("ask.prompt is 1–120 characters")?;
-            let most = ask["max"].as_u64().unwrap_or(80).clamp(1, 500);
-            json!({
-                "id": id,
-                "prompt": prompt,
-                "placeholder": clean_text(&ask["placeholder"], 60),
-                "max": most,
-                "multiline": ask["multiline"].as_bool() == Some(true),
-            })
+            json!("ask")
         };
-        Ok(self.send_kept(state, target, "ask", &self.extras.asks, clean))
+        self.show_view(state, target, &view, ask)
     }
 
     /// New words on a player's buttons, such as the answers of a quiz.
@@ -312,7 +309,7 @@ impl PhoneHub {
                 .ok_or("labels is an object of button to words")?;
             let mut clean = Map::new();
             for (key, words) in map {
-                if !LAYOUT_KEYS.contains(&key.as_str()) {
+                if !layout_keys().contains(&key.as_str()) {
                     return Err("label keys are south, east, west, north, and start".into());
                 }
                 let words = clean_text(words, 24).ok_or("each label is 1–24 characters")?;
@@ -349,88 +346,21 @@ impl PhoneHub {
         self.push_to(&ids, &Value::Object(message))
     }
 
-    fn clean_screen(&self, screen: &Value) -> Result<Value, String> {
-        let mut clean = Map::new();
-        if let Some(id) = clean_id(&screen["id"]) {
-            clean.insert("id".into(), json!(id));
-        }
-        if let Some(title) = clean_text(&screen["title"], 80) {
-            clean.insert("title".into(), json!(title));
-        }
-        if let Some(text) = clean_text(&screen["text"], 1000) {
-            clean.insert("text".into(), json!(text));
-        }
-        if let Some(image) = screen["image"].as_str() {
-            let images = self.image_urls();
-            let url = images
-                .get(image)
-                .ok_or("screen.image must name one of the game's phone.images")?;
-            clean.insert("image".into(), url.clone());
-        }
-        if let Some(choices) = screen["choices"].as_array() {
-            if choices.len() > MAX_CHOICES {
-                return Err(format!("a screen has at most {MAX_CHOICES} choices"));
-            }
-            let mut out = Vec::new();
-            for choice in choices {
-                let id = clean_id(&choice["id"]).ok_or(
-                    "each choice needs an id of 1–32 letters, digits, dashes, or underscores",
-                )?;
-                let label = clean_text(&choice["label"], 60)
-                    .ok_or("each choice needs a label of 1–60 characters")?;
-                let mut item = Map::new();
-                item.insert("id".into(), json!(id));
-                item.insert("label".into(), json!(label));
-                if let Some(detail) = clean_text(&choice["detail"], 120) {
-                    item.insert("detail".into(), json!(detail));
-                }
-                if let Some(color) = choice["color"].as_str() {
-                    if !PHONE_COLORS.contains(&color) {
-                        return Err("a choice's color is mint, blue, amber, coral, or panel".into());
-                    }
-                    item.insert("color".into(), json!(color));
-                }
-                if let Some(image) = choice["image"].as_str() {
-                    let images = self.image_urls();
-                    let url = images
-                        .get(image)
-                        .ok_or("a choice's image must name one of the game's phone.images")?;
-                    item.insert("image".into(), url.clone());
-                }
-                // A choice can start one of the phone's own actions, done by
-                // the pad from the player's tap: open the camera for a photo,
-                // pick a Home person, or join the audience.
-                if let Some(action) = choice["action"].as_str() {
-                    if !PHONE_ACTIONS.contains(&action) {
-                        return Err("a choice's action is photo, profile, or audience".into());
-                    }
-                    item.insert("action".into(), json!(action));
-                }
-                out.push(Value::Object(item));
-            }
-            clean.insert("choices".into(), Value::Array(out));
-        }
-        if clean.is_empty() {
-            return Err("a screen needs a title, text, an image, or choices".into());
-        }
-        Ok(Value::Object(clean))
-    }
-
     /// What a reconnecting phone should get back: the game's screen, question,
     /// labels, images, and a custom layout's drawing data, plus its profile.
     pub(crate) fn hello_extras(&self, id: &str, hello: &mut Map<String, Value>) {
         hello.insert("images".into(), self.image_urls());
-        let pick = |store: &Mutex<HashMap<String, Value>>| {
-            store
+        hello.insert("panel".into(), self.panel_of(id));
+        hello.insert(
+            "labels".into(),
+            self.extras
+                .labels
                 .lock()
-                .expect("kept")
+                .expect("labels")
                 .get(id)
                 .cloned()
-                .unwrap_or(Value::Null)
-        };
-        hello.insert("screen".into(), pick(&self.extras.screens));
-        hello.insert("ask".into(), pick(&self.extras.asks));
-        hello.insert("labels".into(), pick(&self.extras.labels));
+                .unwrap_or(Value::Null),
+        );
         hello.insert("profile".into(), self.profile_json(id));
         hello.insert("photo".into(), json!(self.has_avatar(id)));
         if let Some(spec) = self.layout_spec(&self.layout()) {
@@ -518,10 +448,10 @@ impl PhoneHub {
                 }
             }
             "text" => {
-                let ask = self.extras.asks.lock().expect("asks").get(id).cloned()?;
-                let most = ask["max"].as_u64().unwrap_or(80) as usize;
+                // Only an answer to the question on this phone's panel.
+                let (ask, most) = self.question_of(id)?;
                 clean.insert("type".into(), json!("text"));
-                clean.insert("ask".into(), ask["id"].clone());
+                clean.insert("ask".into(), json!(ask));
                 clean.insert("text".into(), json!(clean_text(&event["text"], most)?));
             }
             "stroke" => {
@@ -541,7 +471,7 @@ impl PhoneHub {
                 }
                 let color = event["color"]
                     .as_str()
-                    .filter(|color| PHONE_COLORS.contains(color))
+                    .filter(|color| phone_colors().contains(color))
                     .unwrap_or("mint");
                 clean.insert("type".into(), json!("stroke"));
                 clean.insert(

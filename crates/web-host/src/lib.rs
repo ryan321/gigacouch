@@ -23,11 +23,12 @@ use std::{
 
 pub use account::AccountStore;
 pub use package::{
-    DEFAULT_PHONE_LAYOUT, GameFile, GameImage, GameSound, LAYOUT_KEYS, MAX_IMAGE_BYTES,
-    MAX_SOUND_BYTES, PHONE_COLORS, PHONE_LAYOUTS, STOCK_SOUNDS, WebPackage,
+    DEFAULT_PHONE_LAYOUT, GameFile, GameImage, GameSound, MAX_IMAGE_BYTES, MAX_SOUND_BYTES,
+    STOCK_SOUNDS, WebPackage,
 };
+pub use phones::views::{layout_keys, phone_colors, phone_layouts};
 pub use phones::{PREFERRED_PORT as PHONE_PORT, PhoneListen, RUMBLE_PRESETS};
-pub use session::{Buttons, DevicePost, REJOIN_WINDOW, Session, Snapshot};
+pub use session::{ActionDef, Buttons, DevicePost, NamedAxis, REJOIN_WINDOW, Session, Snapshot};
 
 /// A Home request to start a native game. The caller spawns the process and replies.
 pub struct PlayRequest {
@@ -366,7 +367,7 @@ fn dispatch(state: &State, method: &str, url: &str, body: &[u8]) -> Reply {
         ("GET", "/__gigacouch/v1/phone/layout") => {
             let info = match &state.phones {
                 Some(hub) => hub.layout_info(),
-                None => serde_json::json!({ "layout": null, "layouts": PHONE_LAYOUTS, "game": false }),
+                None => serde_json::json!({ "layout": null, "layouts": phone_layouts(), "game": false }),
             };
             text_response(200, "application/json", info.to_string().into_bytes())
         }
@@ -431,6 +432,26 @@ fn dispatch(state: &State, method: &str, url: &str, body: &[u8]) -> Reply {
                 Err(error) => text_response(400, "application/json", serde_json::json!({"ok": false, "error": error, "code": "BAD_PHONE_REQUEST"}).to_string().into_bytes()),
             }
         }
+        ("POST", "/__gigacouch/v1/phone/view") => {
+            // {"player": 2 | "all" | "audience", "view": name | {items} | null, "data": {...}}
+            let request = serde_json::from_slice::<serde_json::Value>(body).unwrap_or_default();
+            let result = match (&state.phones, phones::parse_target(&request["player"])) {
+                (None, _) => Err("phones are not connected to this host".to_string()),
+                (_, Err(error)) => Err(error.to_string()),
+                (Some(hub), Ok(target)) => hub.show_view(state, target, &request["view"], &request["data"]),
+            };
+            phone_reply(result)
+        }
+        ("POST", "/__gigacouch/v1/phone/update") => {
+            // {"player": ..., "set": {"cards.1.disabled": true}, "view": name?}
+            let request = serde_json::from_slice::<serde_json::Value>(body).unwrap_or_default();
+            let result = match (&state.phones, phones::parse_target(&request["player"])) {
+                (None, _) => Err("phones are not connected to this host".to_string()),
+                (_, Err(error)) => Err(error.to_string()),
+                (Some(hub), Ok(target)) => hub.update_view(state, target, request["view"].as_str(), &request["set"]),
+            };
+            phone_reply(result)
+        }
         ("GET", "/__gigacouch/v1/home/remote") => {
             // A game a phone picked from the shelf, for Home to start. Once.
             let open = state.phones.as_ref().and_then(|hub| hub.take_open_request());
@@ -475,6 +496,26 @@ fn dispatch(state: &State, method: &str, url: &str, body: &[u8]) -> Reply {
         ("POST", "/__gigacouch/v1/save/write") => save_write(state, body),
         ("GET", _) => serve_file(state, path),
         _ => text_response(405, "application/json", br#"{"ok":false,"error":"method not allowed","code":"METHOD_NOT_ALLOWED"}"#.to_vec()),
+    }
+}
+
+/// The reply to a game's phone request: how many phones heard it, or why not.
+fn phone_reply(result: Result<usize, String>) -> Reply {
+    match result {
+        Ok(phones) => text_response(
+            200,
+            "application/json",
+            serde_json::json!({"ok": true, "phones": phones})
+                .to_string()
+                .into_bytes(),
+        ),
+        Err(error) => text_response(
+            400,
+            "application/json",
+            serde_json::json!({"ok": false, "error": error, "code": "BAD_PHONE_REQUEST"})
+                .to_string()
+                .into_bytes(),
+        ),
     }
 }
 

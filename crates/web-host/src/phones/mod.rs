@@ -12,11 +12,12 @@
 
 use crate::State;
 mod extras;
+mod panels;
+pub(crate) mod views;
 pub(crate) use extras::{MAX_AVATAR_BYTES, Target, parse_target};
+pub(crate) use panels::check_game_views;
 
-use crate::package::{
-    DEFAULT_PHONE_LAYOUT, GameSound, MAX_SOUND_BYTES, PHONE_LAYOUTS, STOCK_SOUNDS,
-};
+use crate::package::{DEFAULT_PHONE_LAYOUT, GameSound, MAX_SOUND_BYTES, STOCK_SOUNDS};
 use crate::session::{Axis, RawDevice};
 use qrcodegen::{QrCode, QrCodeEcc};
 use serde::Deserialize;
@@ -64,8 +65,19 @@ fn pad_version() -> &'static str {
         let mut hasher = std::collections::hash_map::DefaultHasher::new();
         hasher.write(PAD_HTML.as_bytes());
         hasher.write(PAD_JS.as_bytes());
+        hasher.write(views::layouts_json().as_bytes());
+        hasher.write(views::widgets_json().as_bytes());
         format!("{:016x}", hasher.finish())
     })
+}
+
+/// The pad script as phones get it: with its version, the built-in layouts,
+/// and the widget rules filled in.
+fn pad_script() -> String {
+    PAD_JS
+        .replace("{{PAD_VERSION}}", pad_version())
+        .replace("/*LAYOUTS*/{}", views::layouts_json().trim())
+        .replace("/*WIDGETS*/{ widgets: {} }", views::widgets_json().trim())
 }
 
 /// Named vibration patterns a game can ask for: on and off lengths in
@@ -197,6 +209,12 @@ struct PhoneState {
     /// The phone's own measure of its round trip to the host, in ms.
     #[serde(default)]
     rtt: u32,
+    /// Named actions and axes the game's layout drives. The session keeps
+    /// only the ones the open game declares.
+    #[serde(default)]
+    actions: std::collections::BTreeMap<String, bool>,
+    #[serde(default)]
+    axes: std::collections::BTreeMap<String, crate::session::NamedAxis>,
 }
 
 impl PhoneHub {
@@ -377,12 +395,13 @@ impl PhoneHub {
             .collect();
         json!({
             "layout": self.layout(),
-            "layouts": PHONE_LAYOUTS
+            "layouts": views::phone_layouts()
                 .iter()
                 .map(|name| (*name).to_string())
                 .chain(self.extras_layout_names())
                 .collect::<Vec<_>>(),
             "game": self.in_game.load(Ordering::SeqCst),
+            "details": views::layout_details(),
             "stock_sounds": STOCK_SOUNDS,
             "rumble_presets": RUMBLE_PRESETS.iter().map(|(name, _)| *name).collect::<Vec<_>>(),
             "sounds": sounds,
@@ -440,6 +459,8 @@ impl PhoneHub {
                         y: pad.ly,
                     },
                     absolute: pad.absolute,
+                    actions: pad.actions,
+                    axes: pad.axes,
                     avatar: self.avatar_url(id),
                     profile: self.profile_of(id).map(|(person, _)| person),
                 }
@@ -524,6 +545,25 @@ impl PhoneHub {
         state.y = clamp(state.y);
         state.lx = clamp(state.lx);
         state.ly = clamp(state.ly);
+        // Named actions: short names, a handful at most, values in range.
+        let good = |name: &String| {
+            name.len() <= 32
+                && name
+                    .bytes()
+                    .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-')
+        };
+        state.actions.retain(|name, _| good(name));
+        while state.actions.len() > 16 {
+            state.actions.pop_last();
+        }
+        state.axes.retain(|name, _| good(name));
+        while state.axes.len() > 16 {
+            state.axes.pop_last();
+        }
+        for axis in state.axes.values_mut() {
+            axis.x = clamp(axis.x);
+            axis.y = clamp(axis.y);
+        }
         let mut phones = self.phones.lock().expect("phones");
         let joined = phones.get(id).map(|phone| phone.joined).unwrap_or(now);
         phones.insert(
@@ -639,7 +679,7 @@ fn handle(mut stream: TcpStream, hub: &Arc<PhoneHub>, state: &Arc<State>) {
             PAGE_CACHE,
         );
     } else if get && path == format!("{prefix}/pad.js") {
-        let script = PAD_JS.replace("{{PAD_VERSION}}", pad_version());
+        let script = pad_script();
         respond(
             &mut stream,
             200,

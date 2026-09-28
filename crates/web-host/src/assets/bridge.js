@@ -4,6 +4,9 @@
   var axes = new Map();
   var looks = new Map();
   var held = new Map();
+  // The game's declared actions, per player: { name: { held, pressed } }
+  // for buttons and { name: { x, y } } for axes.
+  var named = new Map();
   var BUTTONS = ["south", "east", "west", "north", "start"];
   // Action names games already use, and the button each one reads.
   var ALIASES = { jump: "south", primary_action: "south", secondary_action: "east" };
@@ -42,6 +45,13 @@
           latch[button] = true;
         }
       });
+      var own = player.named || {};
+      Object.keys(own).forEach(function (name) {
+        if (own[name] && own[name].pressed) {
+          latch["named:" + name] = true;
+        }
+      });
+      named.set(player.id, own);
       latches.set(player.id, latch);
       axes.set(player.id, player.move || { x: 0, y: 0 });
       looks.set(player.id, player.look || { x: 0, y: 0 });
@@ -66,6 +76,7 @@
         axes.delete(id);
         looks.delete(id);
         held.delete(id);
+        named.delete(id);
         glyphs.delete(id);
       }
     });
@@ -100,6 +111,13 @@
     return true;
   }
 
+  // One of the game's declared actions (gigacouch.json "actions"), if the
+  // host sent it for this player.
+  function namedOf(playerId, name) {
+    var own = named.get(playerId);
+    return own && Object.prototype.hasOwnProperty.call(own, name) ? own[name] : null;
+  }
+
   function buttonFor(name) {
     var button = ALIASES[name] || name;
     return BUTTONS.indexOf(button) === -1 ? null : button;
@@ -125,19 +143,26 @@
       },
     },
     input: {
-      // "jump", "primary_action", "secondary_action", or a button:
-      // "south", "east", "west", "north", "start". True once per press.
+      // One of the game's declared actions, "jump", "primary_action",
+      // "secondary_action", or a button: "south", "east", "west", "north",
+      // "start". True once per press.
       action: function (playerId, name) {
+        if (namedOf(playerId, name)) return consume(playerId, "named:" + name);
         var button = buttonFor(name);
         return button ? consume(playerId, button) : false;
       },
       // True while the button is down.
       held: function (playerId, name) {
+        var own = namedOf(playerId, name);
+        if (own) return !!own.held;
         var button = buttonFor(name);
         return !!(button && (held.get(playerId) || {})[button]);
       },
-      // "move" (left stick, d-pad, WASD) or "look" (right stick).
+      // "move" (left stick, d-pad, WASD), "look" (right stick), or one of
+      // the game's declared axes.
       axis: function (playerId, name) {
+        var own = namedOf(playerId, name);
+        if (own && typeof own.x === "number") return { x: own.x, y: own.y };
         var table = name === "move" ? axes : name === "look" ? looks : null;
         var value = (table && table.get(playerId)) || { x: 0, y: 0 };
         return { x: value.x, y: value.y };
@@ -242,12 +267,27 @@
           });
         });
       },
-      // A private screen on one player's phone, every phone ("all"), or the
-      // audience ("audience"): { id, title, text, image, choices: [{ id,
-      // label, detail, color, image }] }. null takes it away. A tapped
-      // choice arrives through events().
-      show: function (player, screen) {
-        return post("/__gigacouch/v1/phone/screen", { player: player, screen: screen });
+      // A view on one player's phone, every phone ("all"), or the audience
+      // ("audience"). Three forms:
+      //   show(player, "hand", data)   a view by name (built in or the game's
+      //                                phone.views), filled in from data
+      //   show(player, { items }, data) a view written out
+      //   show(player, { title, text, image, choices })  the built-in screen
+      // null takes it away. A tapped choice arrives through events().
+      show: function (player, view, data) {
+        if (typeof view === "string" || (view && view.items)) {
+          return post("/__gigacouch/v1/phone/view", { player: player, view: view, data: data || {} });
+        }
+        return post("/__gigacouch/v1/phone/screen", { player: player, screen: view });
+      },
+      // Changes part of the data behind a shown view, and the phone redraws
+      // it in place: update(2, { "cards.1.disabled": true }). With a view
+      // name, only phones showing that view change.
+      update: function (player, set, view) {
+        return post("/__gigacouch/v1/phone/update", { player: player, set: set, view: view || null });
+      },
+      hide: function (player) {
+        return post("/__gigacouch/v1/phone/view", { player: player, view: null });
       },
       // A question typed on the phone: { id, prompt, placeholder, max,
       // multiline }. The answer arrives through events(). null takes it away.

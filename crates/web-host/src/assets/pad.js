@@ -10,137 +10,12 @@
   var $ = function (id) { return document.getElementById(id); };
   var RADIUS = 56;
 
-  // Positions are fractions of the control area. Round buttons give a centre
-  // (x, y) and a size as a fraction of the area's shorter side; square
-  // buttons and stick zones give a rect [x, y, width, height]. A layout with
-  // no portrait list asks for the phone to be turned sideways.
-  var LAYOUTS = {
-    "stick-2": {
-      landscape: [
-        { type: "stick", axis: "move", rect: [0, 0, 0.55, 1], hint: "Drag anywhere here to move" },
-        { type: "button", key: "south", label: "A", hint: "join · jump", color: "mint", x: 0.85, y: 0.66, size: 0.4 },
-        { type: "button", key: "east", label: "B", color: "amber", x: 0.64, y: 0.38, size: 0.3 },
-      ],
-      portrait: [
-        { type: "stick", axis: "move", rect: [0, 0.45, 1, 0.55], hint: "Drag anywhere here to move" },
-        { type: "button", key: "south", label: "A", hint: "join · jump", color: "mint", x: 0.7, y: 0.24, size: 0.4 },
-        { type: "button", key: "east", label: "B", color: "amber", x: 0.28, y: 0.18, size: 0.3 },
-      ],
-    },
-    "dpad-2": {
-      landscape: [
-        { type: "dpad", x: 0.24, y: 0.56, size: 0.7 },
-        { type: "button", key: "start", label: "Start", small: true, x: 0.5, y: 0.14, size: 0.16 },
-        { type: "button", key: "south", label: "A", color: "mint", x: 0.86, y: 0.64, size: 0.34 },
-        { type: "button", key: "east", label: "B", color: "amber", x: 0.67, y: 0.46, size: 0.3 },
-      ],
-    },
-    "stick-4": {
-      landscape: [
-        { type: "stick", axis: "move", rect: [0, 0, 0.5, 1], hint: "Drag anywhere here to move" },
-        { type: "button", key: "start", label: "Start", small: true, x: 0.5, y: 0.1, size: 0.14 },
-        { type: "button", key: "south", label: "A", color: "mint", x: 0.77, y: 0.78, size: 0.25 },
-        { type: "button", key: "east", label: "B", color: "coral", x: 0.91, y: 0.52, size: 0.25 },
-        { type: "button", key: "west", label: "X", color: "blue", x: 0.63, y: 0.52, size: 0.25 },
-        { type: "button", key: "north", label: "Y", color: "amber", x: 0.77, y: 0.26, size: 0.25 },
-      ],
-    },
-    "twin-stick": {
-      landscape: [
-        { type: "stick", axis: "move", rect: [0, 0, 0.5, 1], hint: "Drag to move" },
-        { type: "stick", axis: "look", rect: [0.5, 0, 0.5, 1], hint: "Drag to aim" },
-        { type: "button", key: "south", label: "A", color: "mint", x: 0.5, y: 0.84, size: 0.2 },
-        { type: "button", key: "start", label: "Start", small: true, x: 0.5, y: 0.1, size: 0.14 },
-      ],
-    },
-    "one-button": {
-      landscape: [
-        { type: "button", key: "south", label: "A", hint: "tap", color: "mint", x: 0.5, y: 0.5, size: 0.86 },
-      ],
-      portrait: [
-        { type: "button", key: "south", label: "A", hint: "tap", color: "mint", x: 0.5, y: 0.5, size: 0.86 },
-      ],
-    },
-    "quiz-4": {
-      landscape: [
-        { type: "button", key: "south", label: "A", color: "mint", rect: [0.02, 0.04, 0.47, 0.44] },
-        { type: "button", key: "east", label: "B", color: "coral", rect: [0.51, 0.04, 0.47, 0.44] },
-        { type: "button", key: "west", label: "X", color: "blue", rect: [0.02, 0.52, 0.47, 0.44] },
-        { type: "button", key: "north", label: "Y", color: "amber", rect: [0.51, 0.52, 0.47, 0.44] },
-      ],
-      portrait: [
-        { type: "button", key: "south", label: "A", color: "mint", rect: [0.04, 0.02, 0.44, 0.47] },
-        { type: "button", key: "east", label: "B", color: "coral", rect: [0.52, 0.02, 0.44, 0.47] },
-        { type: "button", key: "west", label: "X", color: "blue", rect: [0.04, 0.51, 0.44, 0.47] },
-        { type: "button", key: "north", label: "Y", color: "amber", rect: [0.52, 0.51, 0.44, 0.47] },
-      ],
-    },
-    "racing": {
-      landscape: [
-        { type: "arrow", dir: -1, label: "◀", x: 0.13, y: 0.6, size: 0.42 },
-        { type: "arrow", dir: 1, label: "▶", x: 0.36, y: 0.6, size: 0.42 },
-        { type: "button", key: "start", label: "Start", small: true, x: 0.5, y: 0.1, size: 0.14 },
-        { type: "button", key: "east", label: "Brake", color: "coral", rect: [0.56, 0.34, 0.18, 0.6] },
-        { type: "button", key: "south", label: "Gas", color: "mint", rect: [0.77, 0.12, 0.21, 0.82] },
-      ],
-    },
-    "paddle": {
-      landscape: [
-        { type: "slider", rect: [0.04, 0.34, 0.92, 0.42], hint: "Slide to move. It stays where you leave it." },
-        { type: "button", key: "south", label: "A", color: "mint", x: 0.9, y: 0.15, size: 0.24 },
-      ],
-      portrait: [
-        { type: "slider", rect: [0.05, 0.56, 0.9, 0.3], hint: "Slide to move" },
-        { type: "button", key: "south", label: "A", color: "mint", x: 0.5, y: 0.24, size: 0.4 },
-      ],
-    },
-    "touchpad": {
-      landscape: [
-        { type: "touchpad", rect: [0.02, 0.04, 0.66, 0.92], hint: "Touch to point" },
-        { type: "button", key: "east", label: "B", color: "amber", x: 0.84, y: 0.28, size: 0.26 },
-        { type: "button", key: "south", label: "A", color: "mint", x: 0.84, y: 0.7, size: 0.34 },
-      ],
-      portrait: [
-        { type: "touchpad", rect: [0.04, 0.02, 0.92, 0.62], hint: "Touch to point" },
-        { type: "button", key: "south", label: "A", color: "mint", x: 0.32, y: 0.83, size: 0.34 },
-        { type: "button", key: "east", label: "B", color: "amber", x: 0.72, y: 0.83, size: 0.26 },
-      ],
-    },
-    "lanes-4": {
-      landscape: [
-        { type: "button", key: "west", label: "X", color: "blue", rect: [0.01, 0.04, 0.235, 0.92] },
-        { type: "button", key: "south", label: "A", color: "mint", rect: [0.2575, 0.04, 0.235, 0.92] },
-        { type: "button", key: "east", label: "B", color: "coral", rect: [0.5075, 0.04, 0.235, 0.92] },
-        { type: "button", key: "north", label: "Y", color: "amber", rect: [0.7575, 0.04, 0.235, 0.92] },
-      ],
-      portrait: [
-        { type: "button", key: "west", label: "X", color: "blue", rect: [0.02, 0.02, 0.23, 0.96] },
-        { type: "button", key: "south", label: "A", color: "mint", rect: [0.265, 0.02, 0.23, 0.96] },
-        { type: "button", key: "east", label: "B", color: "coral", rect: [0.51, 0.02, 0.23, 0.96] },
-        { type: "button", key: "north", label: "Y", color: "amber", rect: [0.755, 0.02, 0.23, 0.96] },
-      ],
-    },
-    "two-choice": {
-      landscape: [
-        { type: "button", key: "south", label: "A", color: "mint", rect: [0.02, 0.04, 0.47, 0.92] },
-        { type: "button", key: "east", label: "B", color: "coral", rect: [0.51, 0.04, 0.47, 0.92] },
-      ],
-      portrait: [
-        { type: "button", key: "south", label: "A", color: "mint", rect: [0.04, 0.02, 0.92, 0.47] },
-        { type: "button", key: "east", label: "B", color: "coral", rect: [0.04, 0.51, 0.92, 0.47] },
-      ],
-    },
-    "draw": {
-      landscape: [
-        { type: "canvas", rect: [0.01, 0.03, 0.84, 0.94] },
-        { type: "palette", rect: [0.87, 0.03, 0.12, 0.94] },
-      ],
-      portrait: [
-        { type: "canvas", rect: [0.02, 0.01, 0.96, 0.84] },
-        { type: "palette", rect: [0.02, 0.87, 0.96, 0.12] },
-      ],
-    },
-  };
+  // The built-in layouts and the widget rules come from the host, which
+  // fills these in from assets/phone/layouts.json and widgets.json when it
+  // serves this script. A game's own layouts arrive later with their data.
+  // Positions are fractions of the control area; see docs/phone-views.md.
+  var LAYOUTS = /*LAYOUTS*/{};
+  var WIDGET_TYPES = (/*WIDGETS*/{ widgets: {} }).widgets;
   var DEFAULT_LAYOUT = "stick-2";
   // The host fills this in. When the host's pad is newer (it was updated and
   // restarted while this page stayed open), reload once to pick it up.
@@ -295,9 +170,12 @@
 
   var pad = {};
   var latch = {};
+  // The game's own named actions (buttons) and axes, from its layouts.
+  var latchNamed = {};
   function releaseAll() {
-    pad = { south: false, east: false, west: false, north: false, start: false, leave: false, x: 0, y: 0, lx: 0, ly: 0, digital: false, absolute: false };
+    pad = { south: false, east: false, west: false, north: false, start: false, leave: false, x: 0, y: 0, lx: 0, ly: 0, digital: false, absolute: false, named: {}, axes: {} };
     latch = {};
+    latchNamed = {};
   }
   releaseAll();
 
@@ -330,7 +208,18 @@
     BUTTONS.forEach(function (key) {
       message[key] = !!(pad[key] || latch[key]);
     });
+    var named = {};
+    Object.keys(pad.named).forEach(function (key) { named[key] = !!pad.named[key]; });
+    Object.keys(latchNamed).forEach(function (key) { named[key] = true; });
+    message.actions = named;
+    var axes = {};
+    Object.keys(pad.axes).forEach(function (key) {
+      var axis = pad.axes[key];
+      axes[key] = { x: round(axis.x), y: round(axis.y), absolute: axis.absolute };
+    });
+    message.axes = axes;
     latch = {};
+    latchNamed = {};
     dirty = false;
     sentAt = performance.now();
     try { socket.send(JSON.stringify(message)); } catch (e) { /* reconnect handles it */ }
@@ -391,9 +280,7 @@
         if ("photo" in reply) $("menu-photo-note").textContent = reply.photo ? "Your photo is on the TV. Tap to retake." : "Shows next to your name";
         if (reply.images) preloadImages(reply.images);
         if ("labels" in reply) { labels = reply.labels || {}; drawnAs = ""; draw(); }
-        if ("screen" in reply) { gameScreen = reply.screen; picked = null; renderScreen(); }
-        // The same question again (a reconnect) keeps what is being typed.
-        if ("ask" in reply && JSON.stringify(reply.ask) !== JSON.stringify(question)) { question = reply.ask; renderAsk(); }
+        if ("panel" in reply) renderPanel(reply.panel);
         // A game's own layout comes with its drawing data.
         if (reply.layout && reply.layout_spec) LAYOUTS[reply.layout] = reply.layout_spec;
         if ("player" in reply) player = reply.player || null;
@@ -434,6 +321,31 @@
     try { el.setPointerCapture(event.pointerId); } catch (e) { /* older browsers */ }
   }
 
+  // Where a stick, slider, touchpad, or arrow writes: move, look, or one of
+  // the game's named axes.
+  function setAxis(name, x, y, absolute) {
+    if (!name || name === "move") { pad.x = x; pad.y = y; }
+    else if (name === "look") { pad.lx = x; pad.ly = y; }
+    else pad.axes[name] = { x: x, y: y, absolute: !!absolute };
+    dirty = true;
+  }
+  function getAxis(name) {
+    if (!name || name === "move") return { x: pad.x, y: pad.y };
+    if (name === "look") return { x: pad.lx, y: pad.ly };
+    return pad.axes[name] || { x: 0, y: 0 };
+  }
+
+  // A press's feedback, from the layout: played here, with no round trip.
+  function feedback(what) {
+    if (!what) return;
+    if (what.sound) playSound(what.sound);
+    if (what.rumble) rumble(what.rumble);
+    if (what.flash) {
+      document.body.classList.add("rumble");
+      setTimeout(function () { document.body.classList.remove("rumble"); }, 150);
+    }
+  }
+
   function makeButton(spec, box) {
     var el = document.createElement("button");
     el.type = "button";
@@ -469,10 +381,20 @@
       event.stopPropagation();
       holding = event.pointerId;
       capture(el, event);
-      pad[spec.key] = true;
-      latch[spec.key] = true;
+      // A standard key, or one of the game's named actions. An arrow's
+      // inner button is neither: the arrow writes its axis itself.
+      if (spec.internal) {
+        // nothing to hold
+      } else if (BUTTONS.indexOf(spec.key) !== -1) {
+        pad[spec.key] = true;
+        latch[spec.key] = true;
+      } else {
+        pad.named[spec.key] = true;
+        latchNamed[spec.key] = true;
+      }
+      feedback(spec.feedback);
       // Only players' buttons reach a game; say so instead of doing nothing.
-      if (!player && !audience && spec.key !== "south" && BUTTONS.indexOf(spec.key) !== -1) {
+      if (!player && !audience && spec.key !== "south" && !spec.internal) {
         toast("Press A to join first");
       }
       el.classList.add("down");
@@ -482,7 +404,10 @@
     function release(event) {
       if (event.pointerId !== holding) return;
       holding = null;
-      pad[spec.key] = false;
+      if (spec.internal) {
+        // nothing held
+      } else if (BUTTONS.indexOf(spec.key) !== -1) pad[spec.key] = false;
+      else pad.named[spec.key] = false;
       el.classList.remove("down");
       dirty = true;
     }
@@ -504,8 +429,6 @@
     var base = zone.querySelector(".base");
     var knob = zone.querySelector(".knob");
     var hint = zone.querySelector(".hint");
-    var xKey = spec.axis === "look" ? "lx" : "x";
-    var yKey = spec.axis === "look" ? "ly" : "y";
     var touch = null;
     var origin = { x: 0, y: 0 };
     function place(el, x, y) { el.style.left = x + "px"; el.style.top = y + "px"; }
@@ -533,15 +456,13 @@
         dy = (dy / length) * RADIUS;
       }
       place(knob, origin.x + dx, origin.y + dy);
-      pad[xKey] = dx / RADIUS;
-      pad[yKey] = dy / RADIUS;
+      setAxis(spec.axis, dx / RADIUS, dy / RADIUS, false);
       dirty = true;
     });
     function letGo(event) {
       if (event.pointerId !== touch) return;
       touch = null;
-      pad[xKey] = 0;
-      pad[yKey] = 0;
+      setAxis(spec.axis, 0, 0, false);
       base.hidden = true;
       knob.hidden = true;
       dirty = true;
@@ -643,7 +564,7 @@
     if (standalone || apple || document.fullscreenElement || !root.requestFullscreen) return;
     // Never while typing: going full screen can close the phone's keyboard.
     var focused = document.activeElement;
-    if (question || (focused && /^(INPUT|TEXTAREA)$/.test(focused.tagName))) return;
+    if ($("panel-input") || (focused && /^(INPUT|TEXTAREA)$/.test(focused.tagName))) return;
     root.requestFullscreen({ navigationUI: "hide" }).then(function () {
       var layout = LAYOUTS[layoutName] || LAYOUTS[DEFAULT_LAYOUT];
       if (!layout.portrait && screen.orientation && screen.orientation.lock) {
@@ -667,11 +588,11 @@
   // Steering arrows: holding one sets move x to -1 or 1; both cancel out.
   var arrowsHeld = { "-1": false, "1": false };
   function makeArrow(spec, box) {
-    var el = makeButton({ key: "arrow" + spec.dir, label: spec.label, color: "panel", x: spec.x, y: spec.y, size: spec.size }, box);
+    var el = makeButton({ internal: true, label: spec.label, color: "panel", x: spec.x, y: spec.y, size: spec.size, feedback: spec.feedback }, box);
     el.classList.add("arrow");
     function update() {
-      pad.x = (arrowsHeld["1"] ? 1 : 0) - (arrowsHeld["-1"] ? 1 : 0);
-      dirty = true;
+      var axis = spec.axis || "move";
+      setAxis(axis, (arrowsHeld["1"] ? 1 : 0) - (arrowsHeld["-1"] ? 1 : 0), getAxis(axis).y, false);
     }
     el.addEventListener("pointerdown", function () { arrowsHeld[spec.dir] = true; update(); send(); });
     el.addEventListener("pointerup", function () { arrowsHeld[spec.dir] = false; update(); });
@@ -687,13 +608,14 @@
     track.innerHTML = '<div class="hint"></div><div class="rail"></div><div class="thumb"></div>';
     track.querySelector(".hint").textContent = spec.hint || "";
     var thumb = track.querySelector(".thumb");
-    function show() { thumb.style.left = ((pad.x + 1) / 2) * 100 + "%"; }
+    var axis = spec.axis || "move";
+    function show() { thumb.style.left = ((getAxis(axis).x + 1) / 2) * 100 + "%"; }
     show();
     var touch = null;
     function aim(event) {
       var rect = track.getBoundingClientRect();
       var value = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-      pad.x = Math.max(-1, Math.min(1, value));
+      setAxis(axis, Math.max(-1, Math.min(1, value)), 0, true);
       show();
       dirty = true;
     }
@@ -721,15 +643,17 @@
     pad_.querySelector(".hint").textContent = spec.hint || "";
     var spot = pad_.querySelector(".spot");
     function show() {
-      spot.style.left = ((pad.lx + 1) / 2) * 100 + "%";
-      spot.style.top = ((pad.ly + 1) / 2) * 100 + "%";
+      var at = getAxis(spec.axis || "look");
+      spot.style.left = ((at.x + 1) / 2) * 100 + "%";
+      spot.style.top = ((at.y + 1) / 2) * 100 + "%";
     }
     show();
     var touch = null;
     function aim(event) {
       var rect = pad_.getBoundingClientRect();
-      pad.lx = Math.max(-1, Math.min(1, ((event.clientX - rect.left) / rect.width) * 2 - 1));
-      pad.ly = Math.max(-1, Math.min(1, ((event.clientY - rect.top) / rect.height) * 2 - 1));
+      setAxis(spec.axis || "look",
+        Math.max(-1, Math.min(1, ((event.clientX - rect.left) / rect.width) * 2 - 1)),
+        Math.max(-1, Math.min(1, ((event.clientY - rect.top) / rect.height) * 2 - 1)), true);
       show();
       dirty = true;
     }
@@ -754,6 +678,19 @@
     return pad_;
   }
 
+  // The widget registry: one renderer per widget type in widgets.json.
+  // Each takes (spec, box, context) and returns the element to place.
+  var WIDGETS = {
+    stick: makeStick,
+    dpad: makeDpad,
+    button: makeButton,
+    arrow: makeArrow,
+    slider: makeSlider,
+    touchpad: makeTouchpad,
+    canvas: makeCanvas,
+    palette: function (spec, box, context) { return makePalette(spec, box, context.portrait); },
+  };
+
   function draw() {
     var layout = LAYOUTS[layoutName] || LAYOUTS[DEFAULT_LAYOUT];
     var portrait = window.innerHeight > window.innerWidth;
@@ -770,26 +707,22 @@
     if (!controls) return;
     var box = area.getBoundingClientRect();
     arrowsHeld = { "-1": false, "1": false };
-    pad.digital = controls.some(function (spec) { return spec.type === "dpad" || spec.type === "arrow"; });
-    pad.absolute = controls.some(function (spec) { return spec.type === "slider" || spec.type === "touchpad"; });
+    // Whether moves are whole steps or positions comes from the widget rules.
+    var rule = function (spec) { return WIDGET_TYPES[spec.type] || {}; };
+    pad.digital = controls.some(function (spec) { return rule(spec).digital === true; });
+    pad.absolute = controls.some(function (spec) { return rule(spec).absolute === true; });
+    var context = { portrait: portrait };
     controls.forEach(function (spec) {
-      if (spec.type === "stick") area.append(makeStick(spec, box));
-      else if (spec.type === "dpad") area.append(makeDpad(spec, box));
-      else if (spec.type === "arrow") area.append(makeArrow(spec, box));
-      else if (spec.type === "slider") area.append(makeSlider(spec, box));
-      else if (spec.type === "touchpad") area.append(makeTouchpad(spec, box));
-      else if (spec.type === "canvas") area.append(makeCanvas(spec, box));
-      else if (spec.type === "palette") area.append(makePalette(spec, box, portrait));
-      else area.append(makeButton(spec, box));
+      var render = WIDGETS[spec.type];
+      if (render) area.append(render(spec, box, context));
     });
   }
 
   // ---- Features a game can opt into ----------------------------------------
 
   var labels = {};
-  var gameScreen = null;
+  var panel = null;
   var picked = null;
-  var question = null;
   var audience = stored("gigacouch.phone.audience", "") === "1";
   var mirrored = stored("gigacouch.phone.mirror", "") === "1";
   var keepAwake = stored("gigacouch.phone.awake", "1") === "1";
@@ -826,90 +759,126 @@
     return copy;
   }
 
-  // The game's private screen: text, an image, and choices to tap.
-  function renderScreen() {
-    var old = $("screen");
-    if (old) old.remove();
-    if (!gameScreen) return;
-    var box = document.createElement("section");
-    box.id = "screen";
-    box.className = "overlay";
-    if (gameScreen.title) { var h = document.createElement("h2"); h.textContent = gameScreen.title; box.append(h); }
-    if (gameScreen.image) { var img = document.createElement("img"); img.className = "art"; img.src = gameScreen.image; img.alt = ""; box.append(img); }
-    if (gameScreen.text) { var p = document.createElement("p"); p.textContent = gameScreen.text; box.append(p); }
-    if (gameScreen.choices && gameScreen.choices.length) {
-      var grid = document.createElement("div");
-      grid.className = "choices";
-      gameScreen.choices.forEach(function (choice) {
-        var button = document.createElement("button");
-        button.type = "button";
-        button.className = "choice" + (picked === choice.id ? " picked" : "");
-        if (choice.color) button.style.background = COLORS[choice.color] || "";
-        if (choice.image) { var art = document.createElement("img"); art.src = choice.image; art.alt = ""; button.append(art); }
-        button.append(choice.label);
-        if (choice.detail) { var small = document.createElement("small"); small.textContent = choice.detail; button.append(small); }
-        button.addEventListener("click", function () {
-          picked = choice.id;
-          sendEvent({ type: "choice", choice: choice.id, screen: gameScreen.id });
-          buzz();
-          // A phone action runs from this tap, which the camera needs.
-          if (choice.action === "photo") $("photo-input").click();
-          else if (choice.action === "profile") sendKind({ kind: "request", what: "profiles" });
-          else if (choice.action === "audience") toggleAudience();
-          renderScreen();
-        });
-        grid.append(button);
-      });
-      box.append(grid);
+  // The panel layer above the controls: a view the game shows, with items
+  // the host already filled in and checked. When an update keeps the same
+  // view and the same kinds of items, the panel changes in place: a text box
+  // being typed in is never rebuilt, so the keyboard stays open.
+  function renderPanel(next) {
+    var box = $("panel");
+    if (!next) {
+      panel = null;
+      picked = null;
+      if (box) box.remove();
+      return;
     }
-    $("controls").append(box);
+    var shape = function (view) { return view.view + ":" + view.id + ":" + view.items.map(function (item) { return item.type; }).join(","); };
+    var same = box && panel && shape(panel) === shape(next);
+    if (!same) picked = null;
+    panel = next;
+    if (!same) {
+      if (box) box.remove();
+      box = document.createElement("section");
+      box.id = "panel";
+      box.className = "overlay";
+      panel.items.forEach(function (item) { box.append(makeItem(item)); });
+      $("controls").append(box);
+      var input = $("panel-input");
+      if (input) setTimeout(function () { try { input.focus(); } catch (e) {} }, 50);
+      return;
+    }
+    panel.items.forEach(function (item, index) { updateItem(box.children[index], item); });
   }
 
-  // A question from the game, answered with the phone's own keyboard.
-  function renderAsk() {
-    var old = $("ask");
-    if (old) old.remove();
-    if (!question) return;
-    var box = document.createElement("section");
-    box.id = "ask";
-    box.className = "overlay";
+  function makeItem(item) {
+    var el;
+    if (item.type === "text") {
+      el = document.createElement(item.style === "title" ? "h2" : "p");
+    } else if (item.type === "image") {
+      el = document.createElement("img");
+      el.className = "art";
+      el.alt = "";
+    } else if (item.type === "choices") {
+      el = document.createElement("div");
+      el.className = "choices";
+    } else if (item.type === "text-input") {
+      el = makeQuestion(item);
+    } else {
+      el = document.createElement("div");
+    }
+    updateItem(el, item);
+    return el;
+  }
+
+  function updateItem(el, item) {
+    if (item.type === "text") el.textContent = item.text;
+    else if (item.type === "image") el.src = item.image;
+    else if (item.type === "choices") fillChoices(el, item.choices);
+    else if (item.type === "text-input") {
+      el.querySelector("label").textContent = item.prompt;
+      var input = el.querySelector("#panel-input");
+      input.maxLength = item.max || 80;
+      input.placeholder = item.placeholder || "";
+    }
+  }
+
+  function fillChoices(grid, choices) {
+    grid.innerHTML = "";
+    choices.forEach(function (choice) {
+      var button = document.createElement("button");
+      button.type = "button";
+      button.className = "choice" + (picked === choice.id || choice.picked ? " picked" : "") + (choice.disabled ? " disabled" : "");
+      button.disabled = !!choice.disabled;
+      if (choice.color) button.style.background = COLORS[choice.color] || "";
+      if (choice.image) { var art = document.createElement("img"); art.src = choice.image; art.alt = ""; button.append(art); }
+      button.append(choice.label);
+      if (choice.detail) { var small = document.createElement("small"); small.textContent = choice.detail; button.append(small); }
+      button.addEventListener("click", function () {
+        if (choice.disabled) return;
+        picked = choice.id;
+        sendEvent({ type: "choice", choice: choice.id, screen: panel.id, view: panel.view });
+        buzz();
+        // A phone action runs from this tap, which the camera needs.
+        if (choice.action === "photo") $("photo-input").click();
+        else if (choice.action === "profile") sendKind({ kind: "request", what: "profiles" });
+        else if (choice.action === "audience") toggleAudience();
+        fillChoices(grid, choices);
+      });
+      grid.append(button);
+    });
+  }
+
+  // A question answered with the phone's own keyboard. Not now closes it,
+  // so the controls underneath (Next included) are always reachable.
+  function makeQuestion(item) {
     var form = document.createElement("form");
+    form.className = "question";
     var label = document.createElement("label");
-    label.textContent = question.prompt;
-    label.htmlFor = "ask-input";
-    var input = document.createElement(question.multiline ? "textarea" : "input");
-    input.id = "ask-input";
-    input.maxLength = question.max || 80;
-    input.placeholder = question.placeholder || "";
+    label.htmlFor = "panel-input";
+    var input = document.createElement(item.multiline ? "textarea" : "input");
+    input.id = "panel-input";
     input.autocomplete = "off";
-    var button = document.createElement("button");
-    button.type = "submit";
-    button.textContent = "Send";
-    // A question never traps the player: Not now closes it, and the
-    // controls underneath (Next included) are back.
+    var send = document.createElement("button");
+    send.type = "submit";
+    send.textContent = "Send";
     var later = document.createElement("button");
     later.type = "button";
     later.className = "later";
     later.textContent = "Not now";
     later.addEventListener("click", function () {
       input.blur();
-      question = null;
-      renderAsk();
+      renderPanel(null);
     });
-    form.append(label, input, button, later);
+    form.append(label, input, send, later);
     form.addEventListener("submit", function (event) {
       event.preventDefault();
       var text = input.value.trim();
       if (!text) return;
       sendEvent({ type: "text", text: text });
       input.blur();
-      question = null;
-      renderAsk();
+      renderPanel(null);
       toast("Sent");
     });
-    box.append(form);
-    $("controls").append(box);
-    setTimeout(function () { try { input.focus(); } catch (e) {} }, 50);
+    return form;
   }
 
   function preloadImages(map) {

@@ -274,6 +274,12 @@
       if (info && info.layouts) {
         layouts = info.layouts.filter(function (id) { return ABOUT[id]; });
       }
+      // Titles and descriptions come from the host's layouts.json.
+      (info && info.details || []).forEach(function (detail) {
+        if (!ABOUT[detail.name]) return;
+        if (detail.title) ABOUT[detail.name].name = detail.title;
+        if (detail.about) ABOUT[detail.name].about = detail.about;
+      });
       if (info && info.layout) current = info.layout;
     }).catch(function () {}).then(function () {
       showLayout();

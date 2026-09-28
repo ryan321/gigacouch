@@ -137,6 +137,18 @@ GigaCouch.players.list()
 ```
 
 - **Private screens.** Text, one of the game's images, and up to 12 choices. A choice can also start one of the phone's own actions with `action`: `"photo"` opens the camera, `"profile"` lists Home's people, and `"audience"` switches the phone to the audience. The pad does these from the player's tap; a game cannot start them any other way. Images come from `phone.images` in `gigacouch.json`: PNG, JPG, or WebP, at most 512 KiB each and 4 MiB together. The host checks every field and drops the rest; the pad draws from that data, and no game code runs on a phone.
+- **Views and updates.** A private screen and a question are both panel views: lists of text, image, choices, and text-input items above the controller. A game names its own in `phone.views` in `gigacouch.json`, with any value bound to data, and shows one per player:
+
+  ```javascript
+  // gigacouch.json: "views": { "hand": { "items": [
+  //   { "type": "text", "style": "title", "text": { "bind": "title" } },
+  //   { "type": "choices", "choices": { "bind": "cards" } } ] } }
+  GigaCouch.phone.show(2, "hand", { title: "Your hand", cards: [{ id: "sun", label: "Sun", image: "sun" }] })
+  GigaCouch.phone.update(2, { "cards.0.picked": true, title: "Played" }, "hand")
+  GigaCouch.phone.hide(2)
+  ```
+
+  The host fills the view in from the data, checks the result, and sends the finished panel, so phones draw only checked content. The phone changes a panel in place when the view and its kinds of items stay the same, so a question being typed keeps its text and the keyboard. `show(player, { title, text, image, choices })` and `ask` are the built-in `screen` and `ask` views, in `crates/web-host/src/assets/phone/views.json`. A text answer counts only while the phone's panel has a text-input.
 - **Typing.** Home uses it too: on "Spell the name", any phone can type the name.
 - **Drawing.** The built-in `draw` layout has a canvas and a color picker. Strokes arrive as events with points from 0 to 1 across the canvas.
 - **The game's own layouts.** `phone.layouts` in `gigacouch.json` names layouts built from stick, dpad, button, arrow, slider, touchpad, canvas, and palette controls, placed in fractions of the screen. `phone.layout` and `setLayout` accept them. The host keeps only the fields the pad draws.
@@ -163,7 +175,7 @@ Each reply to a phone carries a fingerprint of the pad the host serves. A phone 
 
 The Controller Gallery on the shelf, in `examples/controller-gallery`, shows every layout and plays sounds on the pressing player's phone: stock sounds on most layouts, and its own sounds (a chime, a boing, a horn, engine and tire screech for racing, and a drum kit on the four lanes). The TV lists which button plays which sound and which ones also buzz, and each player's card says whether their phone vibrates or flashes. Each player gets a live card with their sticks and buttons. Holding A for two seconds moves everyone to the next layout, and `]` and `[` step forward and back on the keyboard. It sets no player limit.
 
-An unknown layout fails the package check. The layouts live in `crates/web-host/src/assets/pad.js`, and a test keeps that table and the host's list the same.
+An unknown layout fails the package check. The built-in layouts live in `crates/web-host/src/assets/phone/layouts.json`, and the widgets they are built from, with their rules, in `widgets.json` next to it. The host checks every layout against those rules (`phones/views.rs`) and fills them into the pad when it serves it. Tests fail if the pad's renderers or the package schema drift from them. The direction for phone screens is in [docs/phone-views.md](../../docs/phone-views.md).
 
 The host listens for phones on port 8790, or a free port when 8790 is busy, on every interface. That listener serves only the pad page, its script, and one WebSocket per phone, under a code that changes each time the app starts. Saves, games, Home, and account routes stay on the loopback origin, and a test checks that the phone listener refuses them. The host adds live phones to the device list the page posts, so web games see a phone as another player with no changes. A phone that goes quiet for 1.5 seconds reads as released, and after 8 seconds its slot is freed.
 
@@ -228,6 +240,29 @@ GigaCouch.lifecycle.quit()
 ```
 
 `action` is true once per press, and `held` is true while a button is down. Buttons are named by position: `south`, `east`, `west`, `north`, and `start`. `jump` and `primary_action` are `south`, and `secondary_action` is `east`. `move` is the left stick, d-pad, or WASD, and `look` is the right stick or a phone's aim stick. Pads, phones, and the keyboard all report through these names.
+
+### Named actions
+
+A game can name its own inputs at the top of `gigacouch.json`, up to 16 of them:
+
+```json
+"actions": {
+  "boost": { "type": "button", "pad": "south" },
+  "shield": "button",
+  "throttle": { "type": "axis", "pad": "look" }
+}
+```
+
+A phone layout binds a button's `key` or a stick's, slider's, touchpad's, or arrow's `axis` to one of them. The same `action`, `held`, and `axis` calls read them by name. Pads and the keyboard have no named inputs, so `pad` says which standard key or stick stands in for each one there. An action without `pad` never fires on a pad. Names are lowercase and cannot reuse a standard name. The snapshot sends them for each player under `named`, only while the game that declared them is open.
+
+A layout's button or arrow can also declare `feedback`, played on the phone the moment it is pressed with no trip to the computer:
+
+```json
+{ "type": "button", "key": "boost", "label": "Boost", "rect": [0.67, 0.04, 0.31, 0.4],
+  "feedback": { "sound": "whoosh", "rumble": "hit", "flash": true } }
+```
+
+`sound` is a stock sound or one of the game's `phone.sounds`, `rumble` is a preset name, and `flash` lights the phone's edges. The package check turns the preset into its pattern before it reaches a phone. The Phone Lab's Named actions station uses both.
 
 ## Source build
 

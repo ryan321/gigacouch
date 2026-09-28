@@ -78,7 +78,9 @@ pub(crate) fn route(state: &State, method: &str, path: &str, body: &[u8]) -> Opt
             if let Some(hub) = &state.phones {
                 hub.set_layout(None);
             }
-            state.session.lock().expect("session").set_limit(None);
+            let mut session = state.session.lock().expect("session");
+            session.set_limit(None);
+            session.set_actions(Vec::new());
             Some(serve_rooted(&shelf.root, "index.html"))
         }
         ("GET", "/home.js") => Some(serve_rooted(&shelf.root, "home.js")),
@@ -105,10 +107,16 @@ pub(crate) fn route(state: &State, method: &str, path: &str, body: &[u8]) -> Opt
                 if let Some(hub) = &state.phones {
                     // Images and layouts first: the layout may be one of them.
                     match package.as_ref() {
-                        Some(package) => {
-                            hub.set_game_extras(package.phone_images(), package.phone_layouts())
-                        }
-                        None => hub.set_game_extras(&[], &serde_json::Map::new()),
+                        Some(package) => hub.set_game_extras(
+                            package.phone_images(),
+                            package.phone_layouts(),
+                            package.phone_views(),
+                        ),
+                        None => hub.set_game_extras(
+                            &[],
+                            &serde_json::Map::new(),
+                            &serde_json::Map::new(),
+                        ),
                     }
                     hub.set_layout(Some(
                         package
@@ -127,7 +135,14 @@ pub(crate) fn route(state: &State, method: &str, path: &str, body: &[u8]) -> Opt
                     .as_ref()
                     .and_then(|package| package.players_max())
                     .map(usize::from);
-                state.session.lock().expect("session").set_limit(limit);
+                let mut session = state.session.lock().expect("session");
+                session.set_limit(limit);
+                session.set_actions(
+                    package
+                        .as_ref()
+                        .map(|package| package.actions().to_vec())
+                        .unwrap_or_default(),
+                );
             }
             Some(reply)
         }

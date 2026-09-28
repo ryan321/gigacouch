@@ -7,24 +7,6 @@ use std::{
     path::{Component, Path},
 };
 
-/// Built-in phone controller layouts. The phone page draws each one; see
-/// `assets/pad.js`. Every layout maps onto the same five buttons and two
-/// sticks the host gives every player.
-pub const PHONE_LAYOUTS: &[&str] = &[
-    "stick-2",
-    "dpad-2",
-    "stick-4",
-    "twin-stick",
-    "one-button",
-    "quiz-4",
-    "racing",
-    "paddle",
-    "touchpad",
-    "lanes-4",
-    "two-choice",
-    "draw",
-];
-
 /// The layout a phone shows on the shelf and in games that name none.
 pub const DEFAULT_PHONE_LAYOUT: &str = "stick-2";
 
@@ -71,12 +53,7 @@ const IMAGE_TYPES: &[(&str, &str)] = &[
     ("webp", "image/webp"),
 ];
 
-/// Button keys a layout can use: the five every player has.
-pub const LAYOUT_KEYS: &[&str] = &["south", "east", "west", "north", "start"];
-/// Colors a layout or a phone screen can use, from the brand palette.
-pub const PHONE_COLORS: &[&str] = &["mint", "blue", "amber", "coral", "panel"];
 const MAX_CUSTOM_LAYOUTS: usize = 16;
-const MAX_LAYOUT_CONTROLS: usize = 16;
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -102,6 +79,9 @@ struct Phone {
     /// The game's own controller layouts, by name. See `check_layout`.
     #[serde(default)]
     layouts: std::collections::BTreeMap<String, serde_json::Value>,
+    /// The game's own panel views, by name. See `phones/panels.rs`.
+    #[serde(default)]
+    views: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -117,6 +97,9 @@ struct RawPackage {
     players: Players,
     #[serde(default)]
     phone: Option<Phone>,
+    /// Named actions: "jump": "button", or { "type": "axis", "pad": "move" }.
+    #[serde(default)]
+    actions: std::collections::BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Clone)]
@@ -125,6 +108,8 @@ pub struct WebPackage {
     sounds: Vec<GameSound>,
     images: Vec<GameImage>,
     layouts: serde_json::Map<String, serde_json::Value>,
+    views: serde_json::Map<String, serde_json::Value>,
+    actions: Vec<crate::session::ActionDef>,
 }
 
 impl WebPackage {
@@ -155,8 +140,15 @@ impl WebPackage {
             sounds: Vec::new(),
             images: Vec::new(),
             layouts: serde_json::Map::new(),
+            views: serde_json::Map::new(),
+            actions: Vec::new(),
         };
-        package.layouts = check_layouts(&package.raw)?;
+        package.actions = check_actions(&package.raw)?;
+        package.layouts = check_layouts(&package.raw, &package.actions)?;
+        if let Some(phone) = &package.raw.phone {
+            package.views =
+                crate::phones::check_game_views(&phone.views).map_err(Error::Invalid)?;
+        }
         package.validate(package_dir)?;
         package.sounds = check_sounds(&package.raw, package_dir)?;
         package.images = check_images(&package.raw, package_dir)?;
@@ -193,6 +185,16 @@ impl WebPackage {
     /// The game's own phone images, already checked.
     pub fn phone_images(&self) -> &[GameImage] {
         &self.images
+    }
+
+    /// The game's named actions, already checked.
+    pub fn actions(&self) -> &[crate::session::ActionDef] {
+        &self.actions
+    }
+
+    /// The game's own phone views, already checked, by name.
+    pub fn phone_views(&self) -> &serde_json::Map<String, serde_json::Value> {
+        &self.views
     }
 
     /// The game's own phone layouts, already checked, by name.
@@ -242,12 +244,12 @@ impl WebPackage {
             ));
         }
         if let Some(layout) = raw.phone.as_ref().and_then(|phone| phone.layout.as_deref())
-            && !PHONE_LAYOUTS.contains(&layout)
+            && !crate::phones::views::phone_layouts().contains(&layout)
             && !self.layouts.contains_key(layout)
         {
             return Err(Error::Invalid(format!(
                 "phone.layout must be one of {}, or one of the game's phone.layouts",
-                PHONE_LAYOUTS.join(", ")
+                crate::phones::views::phone_layouts().join(", ")
             )));
         }
         validate_entrypoint(&raw.entrypoint)?;
@@ -412,9 +414,94 @@ fn good_phone_name(name: &str) -> bool {
 /// Checks a game's own controller layouts and returns them cleaned: only the
 /// fields the pad draws, every number inside the screen, every button one of
 /// the five keys. The pad draws layouts from this data alone.
-fn check_layouts(raw: &RawPackage) -> Result<serde_json::Map<String, serde_json::Value>, Error> {
+/// Checks a game's named actions: short names that are not standard keys or
+/// sticks, a button or an axis each, and a pad fallback of the same kind.
+fn check_actions(raw: &RawPackage) -> Result<Vec<crate::session::ActionDef>, Error> {
+    const STANDARD: &[&str] = &[
+        "south",
+        "east",
+        "west",
+        "north",
+        "start",
+        "move",
+        "look",
+        "jump",
+        "leave",
+        "primary_action",
+        "secondary_action",
+    ];
+    if raw.actions.len() > 16 {
+        return Err(Error::Invalid("actions may name at most 16 actions".into()));
+    }
+    let mut out = Vec::new();
+    for (name, spec) in &raw.actions {
+        if !good_phone_name(name) || STANDARD.contains(&name.as_str()) {
+            return Err(Error::Invalid(format!(
+                "action \"{name}\" needs a lowercase name that is not a standard key or stick"
+            )));
+        }
+        let (kind, pad) = match spec {
+            serde_json::Value::String(kind) => (kind.as_str(), None),
+            serde_json::Value::Object(map) => (
+                map.get("type").and_then(|kind| kind.as_str()).unwrap_or(""),
+                map.get("pad").and_then(|pad| pad.as_str()),
+            ),
+            _ => ("", None),
+        };
+        let axis = match kind {
+            "button" => false,
+            "axis" => true,
+            _ => {
+                return Err(Error::Invalid(format!(
+                    "action \"{name}\" is a \"button\" or an \"axis\""
+                )));
+            }
+        };
+        if let Some(pad) = pad {
+            let fits = if axis {
+                ["move", "look"].contains(&pad)
+            } else {
+                crate::phones::views::layout_keys().contains(&pad)
+            };
+            if !fits {
+                return Err(Error::Invalid(format!(
+                    "action \"{name}\": pad is {} for a {kind}",
+                    if axis {
+                        "move or look"
+                    } else {
+                        "south, east, west, north, or start"
+                    }
+                )));
+            }
+        }
+        out.push(crate::session::ActionDef {
+            name: name.clone(),
+            axis,
+            pad: pad.map(str::to_string),
+        });
+    }
+    Ok(out)
+}
+
+fn check_layouts(
+    raw: &RawPackage,
+    actions: &[crate::session::ActionDef],
+) -> Result<serde_json::Map<String, serde_json::Value>, Error> {
     let Some(phone) = &raw.phone else {
         return Ok(serde_json::Map::new());
+    };
+    let context = crate::phones::views::LayoutContext {
+        buttons: actions
+            .iter()
+            .filter(|def| !def.axis)
+            .map(|def| def.name.clone())
+            .collect(),
+        axes: actions
+            .iter()
+            .filter(|def| def.axis)
+            .map(|def| def.name.clone())
+            .collect(),
+        sounds: phone.sounds.keys().cloned().collect(),
     };
     if phone.layouts.len() > MAX_CUSTOM_LAYOUTS {
         return Err(Error::Invalid(format!(
@@ -423,133 +510,18 @@ fn check_layouts(raw: &RawPackage) -> Result<serde_json::Map<String, serde_json:
     }
     let mut clean = serde_json::Map::new();
     for (name, spec) in &phone.layouts {
-        if !good_phone_name(name) || PHONE_LAYOUTS.contains(&name.as_str()) {
+        if !good_phone_name(name) || crate::phones::views::phone_layouts().contains(&name.as_str())
+        {
             return Err(Error::Invalid(format!(
                 "phone layout \"{name}\" needs a lowercase name that is not a built-in layout"
             )));
         }
-        clean.insert(name.clone(), check_layout(name, spec)?);
+        clean.insert(
+            name.clone(),
+            crate::phones::views::check_layout(name, spec, &context).map_err(Error::Invalid)?,
+        );
     }
     Ok(clean)
-}
-
-fn check_layout(name: &str, spec: &serde_json::Value) -> Result<serde_json::Value, Error> {
-    use serde_json::{Value, json};
-    let bad = |why: &str| Error::Invalid(format!("phone layout \"{name}\": {why}"));
-    let fraction = |value: &Value, what: &str| -> Result<f64, Error> {
-        value
-            .as_f64()
-            .filter(|number| (0.0..=1.0).contains(number))
-            .ok_or_else(|| bad(&format!("{what} must be a number from 0 to 1")))
-    };
-    let text = |value: &Value, most: usize, what: &str| -> Result<Option<String>, Error> {
-        match value {
-            Value::Null => Ok(None),
-            Value::String(words)
-                if words.chars().count() <= most && !words.chars().any(char::is_control) =>
-            {
-                Ok(Some(words.clone()))
-            }
-            _ => Err(bad(&format!(
-                "{what} must be text of at most {most} characters"
-            ))),
-        }
-    };
-    let rect = |value: &Value| -> Result<Value, Error> {
-        let parts = value
-            .as_array()
-            .filter(|parts| parts.len() == 4)
-            .ok_or_else(|| bad("rect must be [x, y, width, height]"))?;
-        let numbers: Vec<f64> = parts
-            .iter()
-            .map(|part| fraction(part, "rect"))
-            .collect::<Result<_, _>>()?;
-        Ok(json!(numbers))
-    };
-    let controls = |list: &Value| -> Result<Value, Error> {
-        let list = list
-            .as_array()
-            .ok_or_else(|| bad("landscape and portrait are lists of controls"))?;
-        if list.is_empty() || list.len() > MAX_LAYOUT_CONTROLS {
-            return Err(bad(&format!(
-                "a layout has 1–{MAX_LAYOUT_CONTROLS} controls"
-            )));
-        }
-        let mut out = Vec::new();
-        for control in list {
-            let kind = control["type"].as_str().unwrap_or("");
-            let mut item = serde_json::Map::new();
-            item.insert("type".into(), json!(kind));
-            match kind {
-                "stick" => {
-                    let axis = control["axis"].as_str().unwrap_or("move");
-                    if axis != "move" && axis != "look" {
-                        return Err(bad("a stick's axis is move or look"));
-                    }
-                    item.insert("axis".into(), json!(axis));
-                    item.insert("rect".into(), rect(&control["rect"])?);
-                }
-                "slider" | "touchpad" | "canvas" | "palette" => {
-                    item.insert("rect".into(), rect(&control["rect"])?);
-                }
-                "dpad" | "button" | "arrow" => {
-                    if kind == "button" {
-                        let key = control["key"].as_str().unwrap_or("");
-                        if !LAYOUT_KEYS.contains(&key) {
-                            return Err(bad(
-                                "a button's key is south, east, west, north, or start",
-                            ));
-                        }
-                        item.insert("key".into(), json!(key));
-                        if let Some(color) = control["color"].as_str() {
-                            if !PHONE_COLORS.contains(&color) {
-                                return Err(bad("color is mint, blue, amber, coral, or panel"));
-                            }
-                            item.insert("color".into(), json!(color));
-                        }
-                        if control["small"].as_bool() == Some(true) {
-                            item.insert("small".into(), json!(true));
-                        }
-                    }
-                    if kind == "arrow" {
-                        let dir = control["dir"]
-                            .as_i64()
-                            .filter(|dir| *dir == -1 || *dir == 1)
-                            .ok_or_else(|| bad("an arrow's dir is -1 or 1"))?;
-                        item.insert("dir".into(), json!(dir));
-                    }
-                    if kind != "dpad" {
-                        let label = text(&control["label"], 16, "label")?
-                            .ok_or_else(|| bad("buttons and arrows need a label"))?;
-                        item.insert("label".into(), json!(label));
-                    }
-                    if kind == "button" && !control["rect"].is_null() {
-                        item.insert("rect".into(), rect(&control["rect"])?);
-                    } else {
-                        item.insert("x".into(), json!(fraction(&control["x"], "x")?));
-                        item.insert("y".into(), json!(fraction(&control["y"], "y")?));
-                        item.insert("size".into(), json!(fraction(&control["size"], "size")?));
-                    }
-                }
-                _ => {
-                    return Err(bad(
-                        "each control's type is stick, dpad, button, arrow, slider, touchpad, canvas, or palette",
-                    ));
-                }
-            }
-            if let Some(hint) = text(&control["hint"], 60, "hint")? {
-                item.insert("hint".into(), json!(hint));
-            }
-            out.push(Value::Object(item));
-        }
-        Ok(Value::Array(out))
-    };
-    let mut clean = serde_json::Map::new();
-    clean.insert("landscape".into(), controls(&spec["landscape"])?);
-    if !spec["portrait"].is_null() {
-        clean.insert("portrait".into(), controls(&spec["portrait"])?);
-    }
-    Ok(Value::Object(clean))
 }
 
 fn validate_entrypoint(entrypoint: &str) -> Result<(), Error> {
