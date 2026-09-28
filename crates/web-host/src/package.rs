@@ -17,10 +17,43 @@ pub const PHONE_LAYOUTS: &[&str] = &[
     "twin-stick",
     "one-button",
     "quiz-4",
+    "racing",
+    "paddle",
+    "touchpad",
+    "lanes-4",
+    "two-choice",
 ];
 
 /// The layout a phone shows on the shelf and in games that name none.
 pub const DEFAULT_PHONE_LAYOUT: &str = "stick-2";
+
+/// Sounds every phone can play without a file: the pad generates them. See
+/// `STOCK_SOUNDS` in `assets/pad.js`. A game's own sounds cannot reuse these
+/// names.
+pub const STOCK_SOUNDS: &[&str] = &[
+    "click", "tick", "ding", "success", "fail", "buzzer", "coin", "whoosh",
+];
+
+/// Limits for a game's own phone sounds. Phones download them all when the
+/// game opens, so they stay small.
+pub const MAX_SOUND_BYTES: u64 = 256 * 1024;
+pub const MAX_SOUNDS_TOTAL_BYTES: u64 = 2 * 1024 * 1024;
+pub const MAX_SOUNDS: usize = 32;
+/// Formats every phone browser plays, iPhone included.
+const SOUND_TYPES: &[(&str, &str)] = &[
+    ("mp3", "audio/mpeg"),
+    ("m4a", "audio/mp4"),
+    ("wav", "audio/wav"),
+];
+
+/// One of a game's own phone sounds, checked and resolved to its file.
+#[derive(Debug, Clone)]
+pub struct GameSound {
+    pub name: String,
+    pub path: std::path::PathBuf,
+    pub content_type: &'static str,
+    pub extension: &'static str,
+}
 const MAX_MANIFEST_BYTES: u64 = 64 * 1024;
 
 #[derive(Debug, Clone, Deserialize)]
@@ -35,7 +68,11 @@ struct Players {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Phone {
-    layout: String,
+    #[serde(default)]
+    layout: Option<String>,
+    /// Sound name to a file inside web/, for example "sounds/ding.mp3".
+    #[serde(default)]
+    sounds: std::collections::BTreeMap<String, String>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -56,6 +93,7 @@ struct RawPackage {
 #[derive(Debug, Clone)]
 pub struct WebPackage {
     raw: RawPackage,
+    sounds: Vec<GameSound>,
 }
 
 impl WebPackage {
@@ -81,8 +119,12 @@ impl WebPackage {
         let raw: RawPackage = serde_json::from_slice(&bytes).map_err(|err| {
             Error::Invalid(format!("gigacouch.json is not a web-1 package: {err}"))
         })?;
-        let package = Self { raw };
+        let mut package = Self {
+            raw,
+            sounds: Vec::new(),
+        };
         package.validate(package_dir)?;
+        package.sounds = check_sounds(&package.raw, package_dir)?;
         Ok(package)
     }
 
@@ -104,8 +146,13 @@ impl WebPackage {
         self.raw
             .phone
             .as_ref()
-            .map(|phone| phone.layout.as_str())
+            .and_then(|phone| phone.layout.as_deref())
             .unwrap_or(DEFAULT_PHONE_LAYOUT)
+    }
+
+    /// The game's own phone sounds, already checked.
+    pub fn phone_sounds(&self) -> &[GameSound] {
+        &self.sounds
     }
 
     pub fn web_relative_entry(&self) -> &str {
@@ -149,8 +196,8 @@ impl WebPackage {
                 "players must satisfy 1 <= min, and min <= max when max is set".into(),
             ));
         }
-        if let Some(phone) = &raw.phone
-            && !PHONE_LAYOUTS.contains(&phone.layout.as_str())
+        if let Some(layout) = raw.phone.as_ref().and_then(|phone| phone.layout.as_deref())
+            && !PHONE_LAYOUTS.contains(&layout)
         {
             return Err(Error::Invalid(format!(
                 "phone.layout must be one of {}",
@@ -167,6 +214,94 @@ impl WebPackage {
         }
         Ok(())
     }
+}
+
+/// Checks a game's own phone sounds: names, formats, sizes, and that each
+/// file sits inside web/.
+fn check_sounds(raw: &RawPackage, package_dir: &Path) -> Result<Vec<GameSound>, Error> {
+    let Some(phone) = &raw.phone else {
+        return Ok(Vec::new());
+    };
+    if phone.sounds.len() > MAX_SOUNDS {
+        return Err(Error::Invalid(format!(
+            "phone.sounds may name at most {MAX_SOUNDS} sounds"
+        )));
+    }
+    let web = package_dir.join("web");
+    let mut total = 0_u64;
+    let mut sounds = Vec::new();
+    for (name, relative) in &phone.sounds {
+        let good_name = !name.is_empty()
+            && name.len() <= 32
+            && !name.starts_with('-')
+            && name
+                .bytes()
+                .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit() || byte == b'-');
+        if !good_name {
+            return Err(Error::Invalid(format!(
+                "phone sound name \"{name}\" must be 1–32 lowercase letters, digits, or dashes"
+            )));
+        }
+        if STOCK_SOUNDS.contains(&name.as_str()) {
+            return Err(Error::Invalid(format!(
+                "phone sound \"{name}\" is a stock sound; give the game's own sound another name"
+            )));
+        }
+        let path = Path::new(relative);
+        let inside = !relative.is_empty()
+            && !relative.contains('\\')
+            && !relative.contains('\0')
+            && path.components().all(|part| {
+                matches!(part, Component::Normal(segment) if !segment.to_string_lossy().starts_with('.'))
+            });
+        if !inside {
+            return Err(Error::Invalid(format!(
+                "phone sound \"{name}\" must be a file path inside web/"
+            )));
+        }
+        let extension = path
+            .extension()
+            .and_then(|ext| ext.to_str())
+            .map(str::to_ascii_lowercase)
+            .unwrap_or_default();
+        let Some((extension, content_type)) = SOUND_TYPES
+            .iter()
+            .find(|(known, _)| *known == extension)
+            .copied()
+        else {
+            return Err(Error::Invalid(format!(
+                "phone sound \"{name}\" must be .mp3, .m4a, or .wav"
+            )));
+        };
+        let file = web.join(path);
+        let size = std::fs::metadata(&file)
+            .ok()
+            .filter(|meta| meta.is_file())
+            .map(|meta| meta.len())
+            .ok_or_else(|| {
+                Error::Invalid(format!("phone sound \"{name}\" is missing: web/{relative}"))
+            })?;
+        if size > MAX_SOUND_BYTES {
+            return Err(Error::Invalid(format!(
+                "phone sound \"{name}\" is over {} KiB",
+                MAX_SOUND_BYTES / 1024
+            )));
+        }
+        total += size;
+        sounds.push(GameSound {
+            name: name.clone(),
+            path: file,
+            content_type,
+            extension,
+        });
+    }
+    if total > MAX_SOUNDS_TOTAL_BYTES {
+        return Err(Error::Invalid(format!(
+            "phone sounds add up to more than {} MiB",
+            MAX_SOUNDS_TOTAL_BYTES / (1024 * 1024)
+        )));
+    }
+    Ok(sounds)
 }
 
 fn validate_entrypoint(entrypoint: &str) -> Result<(), Error> {

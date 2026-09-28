@@ -316,6 +316,10 @@ function createWindow() {
       contextIsolation: true,
       sandbox: true,
       webSecurity: true,
+      // Keep the game's frame loop, timers, and input running when the
+      // window is covered or in the background. Without this, phones and
+      // pads stop reaching the game until the window is in front again.
+      backgroundThrottling: false,
       devTools: process.env.GIGACOUCH_DEVTOOLS === "1",
     },
   });

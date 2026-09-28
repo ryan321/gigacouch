@@ -45,6 +45,10 @@ pub struct RawDevice {
     /// A second stick: the right stick on a pad, or a phone's look stick.
     #[serde(default)]
     pub look: Axis,
+    /// Positions, not stick tilt: a phone's slider or touchpad. Passed
+    /// through as-is, with no dead zone and no rounding to a circle.
+    #[serde(default)]
+    pub absolute: bool,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
@@ -294,12 +298,18 @@ impl Session {
         } else {
             device.name.trim()
         });
-        let (move_x, move_y) = if device.analog {
+        let (move_x, move_y) = if device.absolute {
+            absolute_move(device.movement.x, device.movement.y)
+        } else if device.analog {
             analog_move(device.movement.x, device.movement.y)
         } else {
             digital_move(device.movement.x, device.movement.y)
         };
-        let (look_x, look_y) = analog_move(device.look.x, device.look.y);
+        let (look_x, look_y) = if device.absolute {
+            absolute_move(device.look.x, device.look.y)
+        } else {
+            analog_move(device.look.x, device.look.y)
+        };
         let position = self
             .tracked
             .iter()
@@ -542,6 +552,13 @@ fn analog_move(x: f32, y: f32) -> (f32, f32) {
     let scaled = ((strength - DEAD_ZONE) / (1.0 - DEAD_ZONE)).clamp(0.0, 1.0);
     let unit = scaled / strength;
     (x * unit, y * unit)
+}
+
+fn absolute_move(x: f32, y: f32) -> (f32, f32) {
+    if !x.is_finite() || !y.is_finite() {
+        return (0.0, 0.0);
+    }
+    (x.clamp(-1.0, 1.0), y.clamp(-1.0, 1.0))
 }
 
 fn digital_move(x: f32, y: f32) -> (f32, f32) {

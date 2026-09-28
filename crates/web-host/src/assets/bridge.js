@@ -160,6 +160,64 @@
         return value;
       },
     },
+    // Phone controllers. The open game's gigacouch.json picks the starting
+    // layout; a game can switch every phone while it runs.
+    phone: {
+      // Resolves to { layout, layouts, game }.
+      info: function () {
+        return fetch("/__gigacouch/v1/phone/layout", { cache: "no-store" }).then(function (response) {
+          return response.json();
+        });
+      },
+      // Plays a sound on the phone of one player (a player number) or on
+      // every phone ("all"): a stock sound, or one the game lists under
+      // phone.sounds in gigacouch.json.
+      sound: function (player, name) {
+        return fetch("/__gigacouch/v1/phone/sound", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ player: player, name: name }),
+        }).then(function (response) {
+          return response.json().then(function (body) {
+            if (!response.ok) {
+              throw new Error((body && body.error) || "could not play that sound");
+            }
+            return body.phones;
+          });
+        });
+      },
+      // Vibrates the phone of one player (a player number) or every phone
+      // ("all"). pattern: a preset ("tap", "bump", "hit", "long", "double",
+      // "heartbeat"), a length in ms, or [on, off, on, ...] in ms. Android
+      // phones vibrate; iPhones flash the pad's edges instead.
+      rumble: function (player, pattern) {
+        return fetch("/__gigacouch/v1/phone/rumble", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ player: player, pattern: pattern }),
+        }).then(function (response) {
+          return response.json().then(function (body) {
+            if (!response.ok) {
+              throw new Error((body && body.error) || "could not rumble");
+            }
+            return body.phones;
+          });
+        });
+      },
+      setLayout: function (layout) {
+        return fetch("/__gigacouch/v1/phone/layout", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ layout: layout }),
+        }).then(function (response) {
+          return response.json().then(function (body) {
+            if (!response.ok) {
+              throw new Error((body && body.error) || "could not change the phone layout");
+            }
+          });
+        });
+      },
+    },
     lifecycle: {
       quit: function () {
         fetch("/__gigacouch/v1/quit", { method: "POST" }).catch(function () {});

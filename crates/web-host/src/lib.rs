@@ -22,8 +22,10 @@ use std::{
 };
 
 pub use account::AccountStore;
-pub use package::{DEFAULT_PHONE_LAYOUT, PHONE_LAYOUTS, WebPackage};
-pub use phones::{PREFERRED_PORT as PHONE_PORT, PhoneListen};
+pub use package::{
+    DEFAULT_PHONE_LAYOUT, GameSound, MAX_SOUND_BYTES, PHONE_LAYOUTS, STOCK_SOUNDS, WebPackage,
+};
+pub use phones::{PREFERRED_PORT as PHONE_PORT, PhoneListen, RUMBLE_PRESETS};
 pub use session::{Buttons, DevicePost, Session, Snapshot};
 
 /// A Home request to start a native game. The caller spawns the process and replies.
@@ -194,7 +196,7 @@ impl Host {
         };
         let phone_port = phone_server
             .as_ref()
-            .and_then(|server| server.server_addr().to_ip())
+            .and_then(|server| server.local_addr().ok())
             .map(|addr| addr.port());
         let listener = tiny_http::Server::http("127.0.0.1:0")
             .map_err(|err| Error::Host(format!("could not bind the local origin: {err}")))?;
@@ -353,6 +355,67 @@ fn dispatch(state: &State, method: &str, url: &str, body: &[u8]) -> Reply {
                 "application/json",
                 format!("{{\"quit\":{quit},\"shelf\":{shelf}}}").into_bytes(),
             )
+        }
+        ("GET", "/__gigacouch/v1/phone/layout") => {
+            let info = match &state.phones {
+                Some(hub) => hub.layout_info(),
+                None => serde_json::json!({ "layout": null, "layouts": PHONE_LAYOUTS, "game": false }),
+            };
+            text_response(200, "application/json", info.to_string().into_bytes())
+        }
+        ("POST", "/__gigacouch/v1/phone/layout") => {
+            let wanted = serde_json::from_slice::<serde_json::Value>(body)
+                .ok()
+                .and_then(|value| value["layout"].as_str().map(str::to_string));
+            match (&state.phones, wanted) {
+                (Some(hub), Some(layout)) if hub.game_sets_layout(&layout) => {
+                    text_response(200, "application/json", br#"{"ok":true}"#.to_vec())
+                }
+                (None, _) => text_response(409, "application/json", br#"{"ok":false,"error":"phones are not connected to this host","code":"NO_PHONES"}"#.to_vec()),
+                _ => text_response(400, "application/json", br#"{"ok":false,"error":"layout must be a built-in phone layout, set while a game is open","code":"BAD_LAYOUT"}"#.to_vec()),
+            }
+        }
+        ("POST", "/__gigacouch/v1/phone/sound") => {
+            // {"player": 2, "name": "ding"}, or "player": "all" for every phone.
+            let request = serde_json::from_slice::<serde_json::Value>(body).unwrap_or_default();
+            let name = request["name"].as_str().unwrap_or("");
+            let player = match &request["player"] {
+                serde_json::Value::String(all) if all == "all" => Ok(None),
+                value => value
+                    .as_u64()
+                    .and_then(|number| u16::try_from(number).ok())
+                    .map(Some)
+                    .ok_or("player must be a player number or \"all\""),
+            };
+            match (&state.phones, player) {
+                (None, _) => text_response(409, "application/json", br#"{"ok":false,"error":"phones are not connected to this host","code":"NO_PHONES"}"#.to_vec()),
+                (_, Err(error)) => text_response(400, "application/json", serde_json::json!({"ok": false, "error": error, "code": "BAD_SOUND"}).to_string().into_bytes()),
+                (Some(hub), Ok(player)) => match hub.play(state, player, name) {
+                    Ok(phones) => text_response(200, "application/json", serde_json::json!({"ok": true, "phones": phones}).to_string().into_bytes()),
+                    Err(error) => text_response(400, "application/json", serde_json::json!({"ok": false, "error": error, "code": "BAD_SOUND"}).to_string().into_bytes()),
+                },
+            }
+        }
+        ("POST", "/__gigacouch/v1/phone/rumble") => {
+            // {"player": 2, "pattern": "hit"}, a length, or [on, off, on, ...].
+            let request = serde_json::from_slice::<serde_json::Value>(body).unwrap_or_default();
+            let player = match &request["player"] {
+                serde_json::Value::String(all) if all == "all" => Ok(None),
+                value => value
+                    .as_u64()
+                    .and_then(|number| u16::try_from(number).ok())
+                    .map(Some)
+                    .ok_or("player must be a player number or \"all\""),
+            };
+            let pattern = phones::rumble_pattern(&request["pattern"]);
+            match (&state.phones, player, pattern) {
+                (None, _, _) => text_response(409, "application/json", br#"{"ok":false,"error":"phones are not connected to this host","code":"NO_PHONES"}"#.to_vec()),
+                (_, Err(error), _) | (_, _, Err(error)) => text_response(400, "application/json", serde_json::json!({"ok": false, "error": error, "code": "BAD_RUMBLE"}).to_string().into_bytes()),
+                (Some(hub), Ok(player), Ok(pattern)) => {
+                    let phones = hub.rumble(state, player, &pattern);
+                    text_response(200, "application/json", serde_json::json!({"ok": true, "phones": phones}).to_string().into_bytes())
+                }
+            }
         }
         ("GET", "/__gigacouch/v1/phones") => {
             let status = match &state.phones {

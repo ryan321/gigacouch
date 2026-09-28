@@ -558,6 +558,23 @@ fn post_devices(host: &Host) {
     assert_eq!(status, 200, "{body}");
 }
 
+/// The next message from the host that contains `needle`. The host sends a
+/// hello on connect and pushes changes as they happen, so replies can queue.
+fn next_with<S: std::io::Read + std::io::Write>(
+    socket: &mut tungstenite::WebSocket<S>,
+    needle: &str,
+) -> String {
+    for _ in 0..50 {
+        let message = socket.read().expect("phone socket");
+        if let Ok(text) = message.to_text()
+            && text.contains(needle)
+        {
+            return text.to_string();
+        }
+    }
+    panic!("no message containing {needle}");
+}
+
 fn wait_for(what: &str, mut check: impl FnMut() -> bool) {
     let deadline = Instant::now() + Duration::from_secs(5);
     while !check() {
@@ -586,6 +603,7 @@ fn home_offers_a_phone_join_address_with_a_qr_code() {
     let (code, page) = exchange(&phone, "GET", &path, None);
     assert_eq!(code, 200);
     assert!(page.contains("Back to the shelf"));
+    assert!(page.contains("Reload controller"));
     // The host's content policy blocks inline scripts, so the pad's script
     // must come from its own file on this origin.
     assert!(!page.contains("<script>"), "inline script would be blocked");
@@ -594,6 +612,10 @@ fn home_offers_a_phone_join_address_with_a_qr_code() {
     assert_eq!(code, 200);
     assert!(script.contains("new WebSocket"));
     assert!(script.contains("Drag anywhere here to move"));
+    assert!(
+        !script.contains("{{PAD_VERSION}}"),
+        "the host fills in the pad version"
+    );
     let raw = raw_exchange(&phone, "GET", &path, None).to_ascii_lowercase();
     assert!(raw.contains("script-src 'self'"));
 }
@@ -811,8 +833,7 @@ fn phones_switch_to_the_open_games_layout_and_back() {
     let (mut socket, _) = tungstenite::connect(socket_url.as_str()).unwrap();
     let hello = json!({"name": "Ada"}).to_string();
     socket.send(Message::Text(hello.clone().into())).unwrap();
-    let first = socket.read().unwrap();
-    assert!(first.to_text().unwrap().contains("\"layout\":\"stick-2\""));
+    next_with(&mut socket, "\"layout\":\"stick-2\"");
 
     let (status, _) = exchange(host.origin(), "GET", "/play/quiz/", None);
     assert_eq!(status, 200);
@@ -821,14 +842,8 @@ fn phones_switch_to_the_open_games_layout_and_back() {
     let (status, _) = exchange(host.origin(), "GET", "/play/quiz/game.js", None);
     assert_eq!(status, 200);
     assert_eq!(phones(&host)["layout"], "quiz-4");
-    socket.send(Message::Text(hello.clone().into())).unwrap();
-    let switched = socket.read().unwrap();
-    assert!(
-        switched
-            .to_text()
-            .unwrap()
-            .contains("\"layout\":\"quiz-4\"")
-    );
+    // The switch is pushed to the phone without it asking.
+    next_with(&mut socket, "\"layout\":\"quiz-4\"");
 
     let (status, _) = exchange(host.origin(), "GET", "/", None);
     assert_eq!(status, 200);
@@ -893,16 +908,14 @@ fn a_phone_can_send_the_tv_back_to_the_shelf_once() {
 
     // On the shelf there is no game to leave.
     socket.send(Message::Text(ask.clone().into())).unwrap();
-    let reply = socket.read().unwrap();
-    assert!(reply.to_text().unwrap().contains("\"game\":false"));
+    next_with(&mut socket, "\"player\"");
     assert_eq!(control(&host)["shelf"], false);
 
     let (status, _) = exchange(host.origin(), "GET", "/play/blob/", None);
     assert_eq!(status, 200);
+    next_with(&mut socket, "\"game\":true");
     socket.send(Message::Text(ask.into())).unwrap();
-    let reply = socket.read().unwrap();
-    assert!(reply.to_text().unwrap().contains("\"game\":true"));
-    assert_eq!(control(&host)["shelf"], true);
+    wait_for("the shelf request", || control(&host)["shelf"] == true);
     assert_eq!(control(&host)["shelf"], false, "reported once");
     assert_eq!(control(&host)["quit"], false, "the app keeps running");
 }
@@ -1035,4 +1048,366 @@ fn home_raises_the_open_file_limit_for_many_phones() {
             limit.rlim_cur
         );
     }
+}
+
+#[test]
+fn the_sample_games_are_valid_packages() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../runtimes/web/examples");
+    let blob = WebPackage::read(&root.join("blob-island")).unwrap();
+    assert_eq!(blob.players_max(), Some(16));
+    let gallery = WebPackage::read(&root.join("controller-gallery")).unwrap();
+    assert_eq!(
+        gallery.players_max(),
+        None,
+        "the gallery has no player limit"
+    );
+}
+
+#[test]
+fn a_game_switches_the_phone_layout_while_it_runs() {
+    use tungstenite::Message;
+
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let home = root.join("../../runtimes/web/home");
+    let gallery = root.join("../../runtimes/web/examples/controller-gallery/web");
+    let dir = tempfile::tempdir().unwrap();
+    let host = Host::start_home_with(
+        &home,
+        &[("controller-gallery", gallery.as_path())],
+        &dir.path().join("profiles.json"),
+        Some(json!([])),
+        None,
+        None,
+        PhoneListen::Loopback,
+    )
+    .unwrap();
+    let set = |layout: &str| {
+        exchange(
+            host.origin(),
+            "POST",
+            "/__gigacouch/v1/phone/layout",
+            Some(json!({ "layout": layout }).to_string().as_bytes()),
+        )
+    };
+    // On the shelf the layout stays the default.
+    assert_eq!(set("racing").0, 400);
+
+    let (status, page) = exchange(host.origin(), "GET", "/play/controller-gallery/", None);
+    assert_eq!(status, 200);
+    assert!(page.contains("gallery.js"));
+    let (_, info) = exchange(host.origin(), "GET", "/__gigacouch/v1/phone/layout", None);
+    let info: serde_json::Value = serde_json::from_str(&info).unwrap();
+    assert_eq!(info["layout"], "stick-2");
+    assert_eq!(
+        info["layouts"].as_array().unwrap().len(),
+        PHONE_LAYOUTS.len()
+    );
+
+    assert_eq!(set("racing").0, 200);
+    assert_eq!(set("theremin").0, 400);
+    assert_eq!(phones(&host)["layout"], "racing");
+
+    let url = phones(&host)["join_url"].as_str().unwrap().to_string();
+    let socket_url = format!("{}/ws?id=galleryphone", url.replacen("http://", "ws://", 1));
+    let (mut socket, _) = tungstenite::connect(socket_url.as_str()).unwrap();
+    socket
+        .send(Message::Text(json!({"name": "Ada"}).to_string().into()))
+        .unwrap();
+    let reply: serde_json::Value =
+        serde_json::from_str(&next_with(&mut socket, "\"pad\"")).unwrap();
+    assert_eq!(reply["layout"], "racing");
+    // The reply carries the pad version the page was served with, so an
+    // older pad knows to reload.
+    let phone = format!("http://127.0.0.1:{}", host.phone_port().unwrap());
+    let path = url.trim_start_matches(&phone);
+    let (_, script) = exchange(&phone, "GET", &format!("{path}/pad.js"), None);
+    let version = reply["pad"].as_str().unwrap();
+    assert!(script.contains(&format!("var PAD_VERSION = \"{version}\"")));
+}
+
+#[test]
+fn slider_and_touchpad_positions_skip_the_dead_zone() {
+    let mut session = Session::new(4);
+    let now = Instant::now();
+    let device = |x: f64, lx: f64, south: bool| -> DevicePost {
+        serde_json::from_value(json!({"devices": [{
+            "id": "phone:slide", "kind": "phone", "name": "Ada", "family": "phone",
+            "south": south, "analog": true, "absolute": true,
+            "move": {"x": x, "y": 0.0}, "look": {"x": lx, "y": 1.0}
+        }]}))
+        .unwrap()
+    };
+    session.apply(device(0.0, 0.0, true), now);
+    session.apply(device(0.1, 1.0, false), now);
+    let snapshot = serde_json::to_value(session.snapshot()).unwrap();
+    let player = &snapshot["players"][0];
+    // A stick would read 0.1 as rest; a slider keeps it.
+    assert!((player["move"]["x"].as_f64().unwrap() - 0.1).abs() < 1e-6);
+    // A touchpad corner stays a corner instead of being pulled onto a circle.
+    assert_eq!(player["look"]["x"], 1.0);
+    assert_eq!(player["look"]["y"], 1.0);
+}
+
+#[test]
+fn the_phone_page_plays_exactly_the_stock_sounds_the_host_knows() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let script = fs::read_to_string(root.join("src/assets/pad.js")).unwrap();
+    let table = &script
+        [script.find("var STOCK_SOUNDS = {").unwrap()..script.find("function playSound").unwrap()];
+    let names: Vec<&str> = table
+        .lines()
+        .filter_map(|line| line.trim().split_once(": function").map(|(name, _)| name))
+        .collect();
+    assert_eq!(names, couch_web_host::STOCK_SOUNDS);
+}
+
+fn with_sounds(dir: &std::path::Path, sounds: serde_json::Value) -> Result<WebPackage, String> {
+    let manifest = dir.join("gigacouch.json");
+    let mut value: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(&manifest).unwrap()).unwrap();
+    value["phone"] = json!({ "sounds": sounds });
+    fs::write(&manifest, value.to_string()).unwrap();
+    WebPackage::read(dir).map_err(|error| error.to_string())
+}
+
+#[test]
+fn a_package_checks_its_own_phone_sounds() {
+    let dir = tempfile::tempdir().unwrap();
+    package(dir.path(), 4, "web/index.html");
+    fs::create_dir_all(dir.path().join("web/sounds")).unwrap();
+    fs::write(dir.path().join("web/sounds/honk.wav"), b"RIFF-sample-bytes").unwrap();
+    fs::write(dir.path().join("web/sounds/song.ogg"), b"OggS").unwrap();
+    fs::write(
+        dir.path().join("web/sounds/huge.mp3"),
+        vec![0_u8; 300 * 1024],
+    )
+    .unwrap();
+    fs::write(dir.path().join("outside.mp3"), b"ID3").unwrap();
+
+    let package = with_sounds(dir.path(), json!({ "honk": "sounds/honk.wav" })).unwrap();
+    assert_eq!(
+        package.phone_layout(),
+        "stick-2",
+        "sounds alone keep the default layout"
+    );
+    assert_eq!(package.phone_sounds().len(), 1);
+    assert_eq!(package.phone_sounds()[0].content_type, "audio/wav");
+
+    for (sounds, expected) in [
+        (json!({ "song": "sounds/song.ogg" }), ".mp3, .m4a, or .wav"),
+        (json!({ "gone": "sounds/gone.mp3" }), "is missing"),
+        (json!({ "ding": "sounds/honk.wav" }), "is a stock sound"),
+        (json!({ "sneaky": "../outside.mp3" }), "inside web/"),
+        (json!({ "huge": "sounds/huge.mp3" }), "KiB"),
+        (json!({ "Bad Name": "sounds/honk.wav" }), "lowercase"),
+    ] {
+        let error = with_sounds(dir.path(), sounds.clone()).unwrap_err();
+        assert!(error.contains(expected), "{sounds}: {error}");
+    }
+}
+
+#[test]
+fn the_gallery_ships_its_own_sounds() {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../runtimes/web/examples");
+    let gallery = WebPackage::read(&root.join("controller-gallery")).unwrap();
+    assert_eq!(gallery.phone_sounds().len(), 9);
+}
+
+fn gallery_home(dir: &std::path::Path) -> Host {
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let home = root.join("../../runtimes/web/home");
+    let gallery = root.join("../../runtimes/web/examples/controller-gallery/web");
+    Host::start_home_with(
+        &home,
+        &[("controller-gallery", gallery.as_path())],
+        &dir.join("profiles.json"),
+        Some(json!([])),
+        None,
+        None,
+        PhoneListen::Loopback,
+    )
+    .unwrap()
+}
+
+#[test]
+fn a_game_s_sounds_reach_phones_when_it_opens_and_leave_with_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let host = gallery_home(dir.path());
+    let url = phones(&host)["join_url"].as_str().unwrap().to_string();
+    let phone = format!("http://127.0.0.1:{}", host.phone_port().unwrap());
+    let (mut socket, _) = tungstenite::connect(format!(
+        "{}/ws?id=soundphone1",
+        url.replacen("http://", "ws://", 1)
+    ))
+    .unwrap();
+    next_with(&mut socket, "\"sounds\":{}");
+
+    let (status, _) = exchange(host.origin(), "GET", "/play/controller-gallery/", None);
+    assert_eq!(status, 200);
+    let pushed: serde_json::Value =
+        serde_json::from_str(&next_with(&mut socket, "\"boing\"")).unwrap();
+    let boing = pushed["sounds"]["boing"].as_str().unwrap().to_string();
+    assert!(boing.ends_with(".wav"));
+    assert_eq!(pushed["sounds"].as_object().unwrap().len(), 9);
+
+    let raw = raw_exchange(&phone, "GET", &boing, None);
+    let lower = raw.to_ascii_lowercase();
+    assert!(
+        lower.starts_with("http/1.1 200"),
+        "{}",
+        &raw[..raw.len().min(120)]
+    );
+    assert!(lower.contains("content-type: audio/wav"));
+    assert!(lower.contains("immutable"), "sound files are cacheable");
+    let other = format!("{}/0000000000000000.wav", boing.rsplit_once('/').unwrap().0);
+    let (status, _) = exchange(&phone, "GET", &other, None);
+    assert_eq!(status, 404, "only declared sounds are served");
+
+    let (status, _) = exchange(host.origin(), "GET", "/", None);
+    assert_eq!(status, 200);
+    next_with(&mut socket, "\"sounds\":{}");
+    let (status, _) = exchange(&phone, "GET", &boing, None);
+    assert_eq!(status, 404, "the shelf serves no game sounds");
+}
+
+#[test]
+fn a_game_plays_a_sound_on_one_player_s_phone_or_all_of_them() {
+    use tungstenite::Message;
+
+    let dir = tempfile::tempdir().unwrap();
+    let host = gallery_home(dir.path());
+    let base = phones(&host)["join_url"]
+        .as_str()
+        .unwrap()
+        .replacen("http://", "ws://", 1);
+    let (mut ada, _) = tungstenite::connect(format!("{base}/ws?id=adaphone01")).unwrap();
+    let (mut bob, _) = tungstenite::connect(format!("{base}/ws?id=bobphone01")).unwrap();
+    ada.send(Message::Text(
+        json!({"name": "Ada", "south": true}).to_string().into(),
+    ))
+    .unwrap();
+    bob.send(Message::Text(json!({"name": "Bob"}).to_string().into()))
+        .unwrap();
+    wait_for("Ada to join", || {
+        post_devices(&host);
+        phones(&host)["phones"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|phone| phone["player"] == 1)
+    });
+    let (status, _) = exchange(host.origin(), "GET", "/play/controller-gallery/", None);
+    assert_eq!(status, 200);
+    let play = |player: serde_json::Value, name: &str| {
+        exchange(
+            host.origin(),
+            "POST",
+            "/__gigacouch/v1/phone/sound",
+            Some(
+                json!({"player": player, "name": name})
+                    .to_string()
+                    .as_bytes(),
+            ),
+        )
+    };
+
+    // Player 1 is Ada: only her phone hears it, straight away.
+    let started = Instant::now();
+    let (status, body) = play(json!(1), "boing");
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"phones\":1"));
+    next_with(&mut ada, "\"sound\":\"boing\"");
+    assert!(
+        started.elapsed() < Duration::from_millis(500),
+        "pushed, not waiting for the phone"
+    );
+
+    let (status, body) = play(json!("all"), "ding");
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"phones\":2"));
+    next_with(&mut ada, "\"sound\":\"ding\"");
+    let heard = next_with(&mut bob, "\"sound\"");
+    assert!(
+        heard.contains("\"ding\""),
+        "Bob hears the stock sound, not Ada's boing: {heard}"
+    );
+
+    assert_eq!(play(json!("all"), "piano").0, 400);
+    assert_eq!(play(json!("everyone"), "ding").0, 400);
+}
+
+#[test]
+fn a_game_rumbles_one_player_s_phone_and_sees_who_can_vibrate() {
+    use tungstenite::Message;
+
+    let dir = tempfile::tempdir().unwrap();
+    let host = gallery_home(dir.path());
+    let base = phones(&host)["join_url"]
+        .as_str()
+        .unwrap()
+        .replacen("http://", "ws://", 1);
+    let (mut android, _) = tungstenite::connect(format!("{base}/ws?id=androidphone")).unwrap();
+    let (mut iphone, _) = tungstenite::connect(format!("{base}/ws?id=iphonephone1")).unwrap();
+    android
+        .send(Message::Text(
+            json!({"name": "Ada", "south": true, "rumble": true})
+                .to_string()
+                .into(),
+        ))
+        .unwrap();
+    iphone
+        .send(Message::Text(
+            json!({"name": "Bob", "rumble": false}).to_string().into(),
+        ))
+        .unwrap();
+    wait_for("Ada to join", || {
+        post_devices(&host);
+        phones(&host)["phones"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|phone| phone["player"] == 1)
+    });
+    let listed = phones(&host);
+    let ada = listed["phones"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "Ada")
+        .unwrap()
+        .clone();
+    let bob = listed["phones"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|p| p["name"] == "Bob")
+        .unwrap()
+        .clone();
+    assert_eq!(ada["rumble"], true);
+    assert_eq!(bob["rumble"], false);
+
+    let rumble = |player: serde_json::Value, pattern: serde_json::Value| {
+        exchange(
+            host.origin(),
+            "POST",
+            "/__gigacouch/v1/phone/rumble",
+            Some(
+                json!({"player": player, "pattern": pattern})
+                    .to_string()
+                    .as_bytes(),
+            ),
+        )
+    };
+    let (status, body) = rumble(json!(1), json!("hit"));
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"phones\":1"));
+    next_with(&mut android, "\"rumble\":[90]");
+
+    let (status, body) = rumble(json!("all"), json!([30, 40, 30]));
+    assert_eq!(status, 200, "{body}");
+    assert!(body.contains("\"phones\":2"));
+    next_with(&mut iphone, "\"rumble\":[30,40,30]");
+
+    assert_eq!(rumble(json!(1), json!("earthquake")).0, 400);
+    assert_eq!(rumble(json!(1), json!(9000)).0, 400);
 }

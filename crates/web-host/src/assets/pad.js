@@ -75,9 +75,196 @@
         { type: "button", key: "north", label: "Y", color: "amber", rect: [0.52, 0.51, 0.44, 0.47] },
       ],
     },
+    "racing": {
+      landscape: [
+        { type: "arrow", dir: -1, label: "◀", x: 0.13, y: 0.6, size: 0.42 },
+        { type: "arrow", dir: 1, label: "▶", x: 0.36, y: 0.6, size: 0.42 },
+        { type: "button", key: "start", label: "Start", small: true, x: 0.5, y: 0.1, size: 0.14 },
+        { type: "button", key: "east", label: "Brake", color: "coral", rect: [0.56, 0.34, 0.18, 0.6] },
+        { type: "button", key: "south", label: "Gas", color: "mint", rect: [0.77, 0.12, 0.21, 0.82] },
+      ],
+    },
+    "paddle": {
+      landscape: [
+        { type: "slider", rect: [0.04, 0.34, 0.92, 0.42], hint: "Slide to move. It stays where you leave it." },
+        { type: "button", key: "south", label: "A", color: "mint", x: 0.9, y: 0.15, size: 0.24 },
+      ],
+      portrait: [
+        { type: "slider", rect: [0.05, 0.56, 0.9, 0.3], hint: "Slide to move" },
+        { type: "button", key: "south", label: "A", color: "mint", x: 0.5, y: 0.24, size: 0.4 },
+      ],
+    },
+    "touchpad": {
+      landscape: [
+        { type: "touchpad", rect: [0.02, 0.04, 0.66, 0.92], hint: "Touch to point" },
+        { type: "button", key: "east", label: "B", color: "amber", x: 0.84, y: 0.28, size: 0.26 },
+        { type: "button", key: "south", label: "A", color: "mint", x: 0.84, y: 0.7, size: 0.34 },
+      ],
+      portrait: [
+        { type: "touchpad", rect: [0.04, 0.02, 0.92, 0.62], hint: "Touch to point" },
+        { type: "button", key: "south", label: "A", color: "mint", x: 0.32, y: 0.83, size: 0.34 },
+        { type: "button", key: "east", label: "B", color: "amber", x: 0.72, y: 0.83, size: 0.26 },
+      ],
+    },
+    "lanes-4": {
+      landscape: [
+        { type: "button", key: "west", label: "X", color: "blue", rect: [0.01, 0.04, 0.235, 0.92] },
+        { type: "button", key: "south", label: "A", color: "mint", rect: [0.2575, 0.04, 0.235, 0.92] },
+        { type: "button", key: "east", label: "B", color: "coral", rect: [0.5075, 0.04, 0.235, 0.92] },
+        { type: "button", key: "north", label: "Y", color: "amber", rect: [0.7575, 0.04, 0.235, 0.92] },
+      ],
+      portrait: [
+        { type: "button", key: "west", label: "X", color: "blue", rect: [0.02, 0.02, 0.23, 0.96] },
+        { type: "button", key: "south", label: "A", color: "mint", rect: [0.265, 0.02, 0.23, 0.96] },
+        { type: "button", key: "east", label: "B", color: "coral", rect: [0.51, 0.02, 0.23, 0.96] },
+        { type: "button", key: "north", label: "Y", color: "amber", rect: [0.755, 0.02, 0.23, 0.96] },
+      ],
+    },
+    "two-choice": {
+      landscape: [
+        { type: "button", key: "south", label: "A", color: "mint", rect: [0.02, 0.04, 0.47, 0.92] },
+        { type: "button", key: "east", label: "B", color: "coral", rect: [0.51, 0.04, 0.47, 0.92] },
+      ],
+      portrait: [
+        { type: "button", key: "south", label: "A", color: "mint", rect: [0.04, 0.02, 0.92, 0.47] },
+        { type: "button", key: "east", label: "B", color: "coral", rect: [0.04, 0.51, 0.92, 0.47] },
+      ],
+    },
   };
   var DEFAULT_LAYOUT = "stick-2";
+  // The host fills this in. When the host's pad is newer (it was updated and
+  // restarted while this page stayed open), reload once to pick it up.
+  var PAD_VERSION = "{{PAD_VERSION}}";
   var BUTTONS = ["south", "east", "west", "north", "start", "leave", "shelf"];
+
+  // ---- Sound -------------------------------------------------------------
+  // Browsers allow sound only after a tap, so the audio engine starts on the
+  // first touch. Stock sounds are generated here; a game's own sounds are
+  // downloaded and decoded when the game opens, so they play at once.
+  var audio = null;
+  var master = null;
+  var soundBytes = {};
+  var soundBuffers = {};
+  try {
+    // Lets iPhone play pad sounds with the silent switch on.
+    if (navigator.audioSession) navigator.audioSession.type = "playback";
+  } catch (e) { /* older Safari */ }
+
+  function startAudio() {
+    var Engine = window.AudioContext || window.webkitAudioContext;
+    if (!Engine) return;
+    if (!audio) {
+      audio = new Engine();
+      master = audio.createGain();
+      master.gain.value = 0.8;
+      master.connect(audio.destination);
+      Object.keys(soundBytes).forEach(decode);
+    }
+    if (audio.state === "suspended") audio.resume();
+  }
+  document.addEventListener("pointerdown", startAudio, { capture: true });
+  document.addEventListener("touchend", startAudio, { capture: true });
+
+  function decode(name) {
+    if (!audio || !soundBytes[name]) return;
+    var bytes = soundBytes[name].slice(0);
+    audio.decodeAudioData(bytes, function (buffer) { soundBuffers[name] = buffer; }, function () {});
+  }
+
+  // The open game's own sounds: name to address on this host.
+  function loadSounds(map) {
+    soundBytes = {};
+    soundBuffers = {};
+    Object.keys(map || {}).forEach(function (name) {
+      fetch(map[name]).then(function (response) {
+        return response.ok ? response.arrayBuffer() : null;
+      }).then(function (bytes) {
+        if (!bytes) return;
+        soundBytes[name] = bytes;
+        decode(name);
+      }).catch(function () {});
+    });
+  }
+
+  function tone(type, from, to, start, length, level) {
+    var osc = audio.createOscillator();
+    var gain = audio.createGain();
+    var t = audio.currentTime + start;
+    osc.type = type;
+    osc.frequency.setValueAtTime(from, t);
+    if (to !== from) osc.frequency.exponentialRampToValueAtTime(to, t + length);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(level, t + 0.005);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + length);
+    osc.connect(gain);
+    gain.connect(master);
+    osc.start(t);
+    osc.stop(t + length + 0.02);
+  }
+
+  function noise(start, length, from, to, level) {
+    var frames = Math.ceil(audio.sampleRate * length);
+    var buffer = audio.createBuffer(1, frames, audio.sampleRate);
+    var data = buffer.getChannelData(0);
+    for (var i = 0; i < frames; i += 1) data[i] = Math.random() * 2 - 1;
+    var source = audio.createBufferSource();
+    var filter = audio.createBiquadFilter();
+    var gain = audio.createGain();
+    var t = audio.currentTime + start;
+    source.buffer = buffer;
+    filter.type = "bandpass";
+    filter.Q.value = 1.2;
+    filter.frequency.setValueAtTime(from, t);
+    filter.frequency.exponentialRampToValueAtTime(to, t + length);
+    gain.gain.setValueAtTime(0.0001, t);
+    gain.gain.exponentialRampToValueAtTime(level, t + length * 0.3);
+    gain.gain.exponentialRampToValueAtTime(0.0001, t + length);
+    source.connect(filter);
+    filter.connect(gain);
+    gain.connect(master);
+    source.start(t);
+  }
+
+  // Stock sounds any game can play without shipping a file. Keep the names
+  // in step with STOCK_SOUNDS in the host's package.rs.
+  var STOCK_SOUNDS = {
+    click: function () { tone("square", 1400, 1400, 0, 0.03, 0.25); },
+    tick: function () { tone("sine", 2000, 2000, 0, 0.025, 0.3); },
+    ding: function () { tone("sine", 1319, 1319, 0, 0.6, 0.5); tone("sine", 2637, 2637, 0, 0.3, 0.12); },
+    success: function () { [523, 659, 784, 1047].forEach(function (f, i) { tone("triangle", f, f, i * 0.07, 0.18, 0.45); }); },
+    fail: function () { tone("sawtooth", 330, 110, 0, 0.45, 0.25); },
+    buzzer: function () { tone("square", 150, 140, 0, 0.5, 0.3); },
+    coin: function () { tone("square", 988, 988, 0, 0.07, 0.25); tone("square", 1319, 1319, 0.07, 0.3, 0.25); },
+    whoosh: function () { noise(0, 0.4, 300, 3000, 0.6); },
+  };
+
+  // ---- Rumble ------------------------------------------------------------
+  // Android phones vibrate. iPhones have no vibration for web pages, so the
+  // pad flashes its edges for the same length instead.
+  var canVibrate = typeof navigator.vibrate === "function";
+  var flashTimer = null;
+  function rumble(pattern) {
+    if (!Array.isArray(pattern) || !pattern.length) return;
+    if (canVibrate) {
+      try { if (navigator.vibrate(pattern)) return; } catch (e) { /* fall back to the flash */ }
+    }
+    var total = pattern.reduce(function (sum, ms) { return sum + ms; }, 0);
+    document.body.classList.add("rumble");
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(function () { document.body.classList.remove("rumble"); }, Math.max(120, Math.min(total, 1500)));
+  }
+
+  function playSound(name) {
+    if (!audio || audio.state !== "running") return;
+    if (soundBuffers[name]) {
+      var source = audio.createBufferSource();
+      source.buffer = soundBuffers[name];
+      source.connect(master);
+      source.start();
+    } else if (STOCK_SOUNDS[name]) {
+      STOCK_SOUNDS[name]();
+    }
+  }
 
   function stored(key, fallback) {
     try { return localStorage.getItem(key) || fallback; } catch (e) { return fallback; }
@@ -99,7 +286,7 @@
   var pad = {};
   var latch = {};
   function releaseAll() {
-    pad = { south: false, east: false, west: false, north: false, start: false, leave: false, x: 0, y: 0, lx: 0, ly: 0, digital: false };
+    pad = { south: false, east: false, west: false, north: false, start: false, leave: false, x: 0, y: 0, lx: 0, ly: 0, digital: false, absolute: false };
     latch = {};
   }
   releaseAll();
@@ -129,7 +316,7 @@
   // until it has been sent once.
   function send() {
     if (!open) return;
-    var message = { name: name, x: round(pad.x), y: round(pad.y), lx: round(pad.lx), ly: round(pad.ly), digital: pad.digital };
+    var message = { name: name, x: round(pad.x), y: round(pad.y), lx: round(pad.lx), ly: round(pad.ly), digital: pad.digital, absolute: pad.absolute, rumble: canVibrate };
     BUTTONS.forEach(function (key) {
       message[key] = !!(pad[key] || latch[key]);
     });
@@ -166,8 +353,22 @@
     socket.onmessage = function (event) {
       try {
         var reply = JSON.parse(event.data);
-        player = reply.player || null;
-        inGame = reply.game === true;
+        if (reply.pad && reply.pad !== PAD_VERSION && stored("gigacouch.phone.reloaded", "") !== reply.pad) {
+          store("gigacouch.phone.reloaded", reply.pad);
+          location.reload();
+          return;
+        }
+        if (reply.sounds) loadSounds(reply.sounds);
+        if (reply.sound) {
+          playSound(reply.sound);
+          return;
+        }
+        if (reply.rumble) {
+          rumble(reply.rumble);
+          return;
+        }
+        if ("player" in reply) player = reply.player || null;
+        if ("game" in reply) inGame = reply.game === true;
         if (reply.layout && LAYOUTS[reply.layout] && reply.layout !== layoutName) {
           layoutName = reply.layout;
           draw();
@@ -192,10 +393,12 @@
     };
   }
 
+  // The pad's own tap feedback, on the shelf only. Inside a game the game
+  // decides what a press feels like: a pad buzz right before the game's
+  // rumble can make Android start the game's vibration late.
   function buzz() {
-    if (navigator.vibrate) {
-      try { navigator.vibrate(8); } catch (e) { /* not on iPhone */ }
-    }
+    if (inGame || !navigator.vibrate) return;
+    try { navigator.vibrate(15); } catch (e) { /* not on iPhone */ }
   }
 
   function capture(el, event) {
@@ -412,6 +615,103 @@
   document.addEventListener("pointerup", goFullScreen, { capture: true });
   document.addEventListener("touchend", goFullScreen, { capture: true });
 
+  function placeRect(el, rect, box) {
+    el.style.left = rect[0] * box.width + "px";
+    el.style.top = rect[1] * box.height + "px";
+    el.style.width = rect[2] * box.width + "px";
+    el.style.height = rect[3] * box.height + "px";
+  }
+
+  // Steering arrows: holding one sets move x to -1 or 1; both cancel out.
+  var arrowsHeld = { "-1": false, "1": false };
+  function makeArrow(spec, box) {
+    var el = makeButton({ key: "arrow" + spec.dir, label: spec.label, color: "panel", x: spec.x, y: spec.y, size: spec.size }, box);
+    el.classList.add("arrow");
+    function update() {
+      pad.x = (arrowsHeld["1"] ? 1 : 0) - (arrowsHeld["-1"] ? 1 : 0);
+      dirty = true;
+    }
+    el.addEventListener("pointerdown", function () { arrowsHeld[spec.dir] = true; update(); send(); });
+    el.addEventListener("pointerup", function () { arrowsHeld[spec.dir] = false; update(); });
+    el.addEventListener("pointercancel", function () { arrowsHeld[spec.dir] = false; update(); });
+    return el;
+  }
+
+  // A slider that stays where the finger leaves it: move x from -1 to 1.
+  function makeSlider(spec, box) {
+    var track = document.createElement("div");
+    track.className = "slider";
+    placeRect(track, spec.rect, box);
+    track.innerHTML = '<div class="hint"></div><div class="rail"></div><div class="thumb"></div>';
+    track.querySelector(".hint").textContent = spec.hint || "";
+    var thumb = track.querySelector(".thumb");
+    function show() { thumb.style.left = ((pad.x + 1) / 2) * 100 + "%"; }
+    show();
+    var touch = null;
+    function aim(event) {
+      var rect = track.getBoundingClientRect();
+      var value = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pad.x = Math.max(-1, Math.min(1, value));
+      show();
+      dirty = true;
+    }
+    track.addEventListener("pointerdown", function (event) {
+      if (touch !== null) return;
+      event.preventDefault();
+      touch = event.pointerId;
+      capture(track, event);
+      aim(event);
+    });
+    track.addEventListener("pointermove", function (event) { if (event.pointerId === touch) aim(event); });
+    function letGo(event) { if (event.pointerId === touch) { touch = null; send(); } }
+    track.addEventListener("pointerup", letGo);
+    track.addEventListener("pointercancel", letGo);
+    return track;
+  }
+
+  // A touchpad: the finger's position on the look axis, -1 to 1 each way,
+  // kept where the finger lifts.
+  function makeTouchpad(spec, box) {
+    var pad_ = document.createElement("div");
+    pad_.className = "touchpad";
+    placeRect(pad_, spec.rect, box);
+    pad_.innerHTML = '<div class="hint"></div><div class="spot"></div>';
+    pad_.querySelector(".hint").textContent = spec.hint || "";
+    var spot = pad_.querySelector(".spot");
+    function show() {
+      spot.style.left = ((pad.lx + 1) / 2) * 100 + "%";
+      spot.style.top = ((pad.ly + 1) / 2) * 100 + "%";
+    }
+    show();
+    var touch = null;
+    function aim(event) {
+      var rect = pad_.getBoundingClientRect();
+      pad.lx = Math.max(-1, Math.min(1, ((event.clientX - rect.left) / rect.width) * 2 - 1));
+      pad.ly = Math.max(-1, Math.min(1, ((event.clientY - rect.top) / rect.height) * 2 - 1));
+      show();
+      dirty = true;
+    }
+    pad_.addEventListener("pointerdown", function (event) {
+      if (touch !== null) return;
+      event.preventDefault();
+      touch = event.pointerId;
+      capture(pad_, event);
+      pad_.classList.add("down");
+      pad_.querySelector(".hint").hidden = true;
+      aim(event);
+    });
+    pad_.addEventListener("pointermove", function (event) { if (event.pointerId === touch) aim(event); });
+    function letGo(event) {
+      if (event.pointerId !== touch) return;
+      touch = null;
+      pad_.classList.remove("down");
+      send();
+    }
+    pad_.addEventListener("pointerup", letGo);
+    pad_.addEventListener("pointercancel", letGo);
+    return pad_;
+  }
+
   function draw() {
     var layout = LAYOUTS[layoutName] || LAYOUTS[DEFAULT_LAYOUT];
     var portrait = window.innerHeight > window.innerWidth;
@@ -426,10 +726,15 @@
     $("turn").hidden = !!controls;
     if (!controls) return;
     var box = area.getBoundingClientRect();
-    pad.digital = controls.some(function (spec) { return spec.type === "dpad"; });
+    arrowsHeld = { "-1": false, "1": false };
+    pad.digital = controls.some(function (spec) { return spec.type === "dpad" || spec.type === "arrow"; });
+    pad.absolute = controls.some(function (spec) { return spec.type === "slider" || spec.type === "touchpad"; });
     controls.forEach(function (spec) {
       if (spec.type === "stick") area.append(makeStick(spec, box));
       else if (spec.type === "dpad") area.append(makeDpad(spec, box));
+      else if (spec.type === "arrow") area.append(makeArrow(spec, box));
+      else if (spec.type === "slider") area.append(makeSlider(spec, box));
+      else if (spec.type === "touchpad") area.append(makeTouchpad(spec, box));
       else area.append(makeButton(spec, box));
     });
   }
@@ -459,6 +764,10 @@
     buzz();
     send();
     closeMenu();
+  });
+  // The home-screen app has no browser reload button, so the menu offers one.
+  $("menu-reload").addEventListener("click", function () {
+    location.reload();
   });
   $("menu-name").addEventListener("click", function () {
     closeMenu();

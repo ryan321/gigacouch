@@ -109,6 +109,12 @@ pub(crate) fn route(state: &State, method: &str, path: &str, body: &[u8]) -> Opt
                             .map(|package| package.phone_layout())
                             .unwrap_or(crate::DEFAULT_PHONE_LAYOUT),
                     ));
+                    hub.set_sounds(
+                        package
+                            .as_ref()
+                            .map(|package| package.phone_sounds())
+                            .unwrap_or(&[]),
+                    );
                 }
                 let limit = package
                     .as_ref()

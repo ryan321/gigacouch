@@ -331,6 +331,7 @@ name = "couch-web-host"
 version = "0.1.0"
 dependencies = [
  "couch-platform",
+ "httparse",
  "libc",
  "qrcodegen",
  "reqwest",

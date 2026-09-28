@@ -34,6 +34,7 @@ pub async fn home(
     let home_dir = root.join("runtimes/web/home");
     let sdk = root.join("sdk");
     let blob = root.join("runtimes/web/examples/blob-island/web");
+    let gallery = root.join("runtimes/web/examples/controller-gallery/web");
     let profiles = data_dir.join("home-profiles.json");
     let session = data_dir.join("home-session");
     let launch = match shell_mode {
@@ -64,7 +65,10 @@ pub async fn home(
     let (play_tx, play_rx) = mpsc::channel();
     let host = Host::start_home_with(
         &home_dir,
-        &[("blob-island", blob.as_path())],
+        &[
+            ("blob-island", blob.as_path()),
+            ("controller-gallery", gallery.as_path()),
+        ],
         &profiles,
         Some(home_cards(&catalog)),
         Some(play_tx),
@@ -217,15 +221,26 @@ fn answer_play(
 }
 
 fn home_cards(catalog: &[Value]) -> Value {
-    let mut cards = vec![json!({
-        "id": "blob-island",
-        "title": "Blob Island",
-        "players": "1–16 on this couch",
-        "description": "A small island and a crowd of blobs. This one plays in the browser.",
-        "runtime": "web-1",
-        "playable": true,
-        "color": "#8ce8be"
-    })];
+    let mut cards = vec![
+        json!({
+            "id": "blob-island",
+            "title": "Blob Island",
+            "players": "1–16 on this couch",
+            "description": "A small island and a crowd of blobs. This one plays in the browser.",
+            "runtime": "web-1",
+            "playable": true,
+            "color": "#8ce8be"
+        }),
+        json!({
+            "id": "controller-gallery",
+            "title": "Controller Gallery",
+            "players": "Any number of phones and pads",
+            "description": "Try every phone controller layout. Hold A to switch everyone to the next one.",
+            "runtime": "web-1",
+            "playable": true,
+            "color": "#9abef7"
+        }),
+    ];
     for game in catalog {
         let raw = game["color"].as_str().unwrap_or("8ce8be");
         let color = if raw.starts_with('#') {

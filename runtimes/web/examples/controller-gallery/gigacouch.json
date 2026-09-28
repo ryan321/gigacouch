@@ -1,0 +1,26 @@
+{
+  "manifest_version": 1,
+  "game_id": "gigacouch.controller-gallery",
+  "title": "Controller Gallery",
+  "version": "0.1.0",
+  "runtime": "web-1",
+  "entrypoint": "web/index.html",
+  "gigacouch_api": "1",
+  "players": {
+    "min": 1
+  },
+  "phone": {
+    "layout": "stick-2",
+    "sounds": {
+      "boing": "sounds/boing.wav",
+      "chime": "sounds/chime.wav",
+      "horn": "sounds/horn.wav",
+      "engine": "sounds/engine.wav",
+      "screech": "sounds/screech.wav",
+      "kick": "sounds/kick.wav",
+      "snare": "sounds/snare.wav",
+      "hat": "sounds/hat.wav",
+      "clap": "sounds/clap.wav"
+    }
+  }
+}

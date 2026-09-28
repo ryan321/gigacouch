@@ -67,10 +67,7 @@
     "phone": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "layout"
-      ],
-      "description": "How a phone controller looks while this game is open. Without it, phones show stick-2.",
+      "description": "Phone controllers while this game is open: the layout, and the game's own sounds. Without it, phones show stick-2 and only the stock sounds play.",
       "properties": {
         "layout": {
           "enum": [
@@ -79,9 +76,38 @@
             "stick-4",
             "twin-stick",
             "one-button",
-            "quiz-4"
+            "quiz-4",
+            "racing",
+            "paddle",
+            "touchpad",
+            "lanes-4",
+            "two-choice"
           ],
-          "description": "stick-2: stick, A, B. dpad-2: d-pad, A, B, Start. stick-4: stick, A, B, X, Y, Start. twin-stick: move and aim sticks, A, Start. one-button: one large A. quiz-4: four large A, B, X, Y buttons."
+          "description": "stick-2: stick, A, B. dpad-2: d-pad, A, B, Start. stick-4: stick, A, B, X, Y, Start. twin-stick: move and aim sticks, A, Start. one-button: one large A. quiz-4: four large A, B, X, Y buttons. racing: steering arrows, Gas (A), Brake (B), Start. paddle: a slider that stays put, A. touchpad: finger position on the look axis, A, B. lanes-4: four tall X, A, B, Y lanes. two-choice: two large A and B buttons."
+        },
+        "sounds": {
+          "type": "object",
+          "maxProperties": 32,
+          "description": "The game's own phone sounds: a name to a file inside web/. MP3, M4A, or WAV; at most 256 KiB each and 2 MiB together. Names cannot reuse the stock sounds: click, tick, ding, success, fail, buzzer, coin, whoosh.",
+          "propertyNames": {
+            "pattern": "^[a-z0-9][a-z0-9-]{0,31}$",
+            "not": {
+              "enum": [
+                "click",
+                "tick",
+                "ding",
+                "success",
+                "fail",
+                "buzzer",
+                "coin",
+                "whoosh"
+              ]
+            }
+          },
+          "additionalProperties": {
+            "type": "string",
+            "pattern": "^[^/.\\\\][^\\\\]*\\.(mp3|m4a|wav|MP3|M4A|WAV)$"
+          }
         }
       }
     }

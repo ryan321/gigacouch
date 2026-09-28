@@ -32,7 +32,11 @@ SHELL = ROOT / "runtimes/web/shell"
 SHELL_FILES = ("main.js", "preload.js", "stats.js", "controllers.js", "overlay.html", "package.json")
 # Home serves these from GIGACOUCH_ROOT. The Godot samples under sdk/ are left
 # out; creator projects still appear from the user's own registry.
-HOME_FILES = ("runtimes/web/home", "runtimes/web/examples/blob-island")
+HOME_FILES = (
+    "runtimes/web/home",
+    "runtimes/web/examples/blob-island",
+    "runtimes/web/examples/controller-gallery",
+)
 
 
 def run(*args, **kwargs):
