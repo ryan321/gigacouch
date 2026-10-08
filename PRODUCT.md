@@ -1,5 +1,7 @@
 # AI-Native Living Room Game Platform
 
+> **V1 changed on October 8, 2026.** V1 is a website for uploading, browsing, and playing web games in Chrome. See [docs/v1.md](docs/v1.md). Where this document describes V1 differently, such as Godot first, an installed app, or phones as controllers, docs/v1.md wins. Those parts describe research and later stages.
+
 The consumer platform is **Giga Couch** ([gigacouch.com](https://gigacouch.com)).
 
 Creator delivery specification: [Giga Couch Game Development Kit](GDK.md), covering what developers get, how they run it and the remaining release work.

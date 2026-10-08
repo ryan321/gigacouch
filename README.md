@@ -1,7 +1,10 @@
 # Giga Couch
 
-A controller-first platform for playing and privately sharing Godot games on your own computer, displayed on a TV through a direct connection or screen sharing. The public site is [gigacouch.com](https://gigacouch.com).
+A website for making, sharing, and playing web games in Chrome with a game controller. The public site is [gigacouch.com](https://gigacouch.com).
 
+**V1 is the website: accounts, profiles, uploading web games, browsing, and playing in Chrome. See [docs/v1.md](docs/v1.md).** It lives in [apps/site](apps/site/README.md). To run it locally, run `pnpm site`, open http://localhost:3000, and run `pnpm site:seed` for a demo account and game. The Game Browser app, phones as controllers, the Godot SDK and player, and the local library described below are research and prototypes from before that decision. They stay in the repo and are not V1.
+
+- [V1: web games in Chrome](docs/v1.md)
 - [Product vision](PRODUCT.md)
 - [Game Development Kit: contents, workflow, and delivery plan](GDK.md)
 - [What the platform and GDK provide: code, scripts, and instructions](docs/platform-and-gdk.md)
@@ -11,7 +14,7 @@ A controller-first platform for playing and privately sharing Godot games on you
 - [Phone views: reusable, game-defined phone screens](docs/phone-views.md)
 - [Runtime architecture](docs/GIGACOUCH_ARCHITECTURE_v2.md)
 - [Technical architecture and stack](TECH_STACK.md)
-- [V1 implementation plan](IMPLEMENTATION_PLAN.md)
+- [Implementation plan: V1 checklist, then R&D](IMPLEMENTATION_PLAN.md)
 - [Multiplayer design: LAN and managed online relaying](docs/multiplayer.md)
 - [Pricing strategy options: paid platform, subscriptions, and creator marketplace](docs/pricing-strategy.md)
 - [Package manifest schema](schemas/manifest.schema.json)

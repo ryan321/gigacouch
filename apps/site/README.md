@@ -1,0 +1,96 @@
+# Giga Couch site
+
+The v1 website described in [docs/v1.md](../../docs/v1.md): accounts, profiles, uploading web games, browsing, and playing them in Chrome with a controller. It's a Next.js and React app. Locally it keeps everything in SQLite and files on disk.
+
+## Run it
+
+Node 22.13 or later is needed, for its built-in SQLite. From this folder:
+
+```
+pnpm install
+pnpm dev
+```
+
+Open **http://localhost:3000**. Use `localhost`, not `127.0.0.1`: games are served from `127.0.0.1`, as explained below.
+
+To get a demo account and a sample game, run this while the site is running:
+
+```
+pnpm seed
+```
+
+That adds the account `demo`, password `couch-demo-password`, and uploads Star Scramble, a small game for up to four controllers and a keyboard.
+
+From the repo root, `pnpm site` starts the dev server and `pnpm site:seed` seeds it.
+
+For a production build, run `pnpm build`, then `pnpm start`.
+
+## Where things are kept
+
+Everything lives in `data/`, which git ignores. Delete it to start over.
+
+| Path | What |
+| --- | --- |
+| `data/site.sqlite` | Accounts, sessions, games, and builds |
+| `data/builds/<build id>/` | Each uploaded build, unpacked |
+| `data/media/` | Avatars, covers, and screenshots |
+
+Set `DATA_DIR` to keep data somewhere else.
+
+## Two origins
+
+Uploaded games are other people's code. A game served from the site's own origin could act as whoever is signed in. So games are served from a different origin, and the site's sign-in cookie never reaches them.
+
+| Setting | Default | What |
+| --- | --- | --- |
+| `SITE_ORIGIN` | `http://localhost:3000` | Where people use the site |
+| `GAMES_ORIGIN` | `http://127.0.0.1:3000` | Where game files are served |
+| `PORT` | `3000` | Used for both defaults |
+
+Locally, Chrome treats `localhost` and `127.0.0.1` as different sites. The same server answers both, but:
+
+- **Game files** under `/g/` are only served on the games origin.
+- **Site pages** opened on the games origin send people back to the site.
+- **Changes** such as uploads and sign-ins are refused unless they come from the site's own pages.
+
+The play page shows the game in a sandboxed frame from the games origin. The frame can use pads, full screen, sound, and mouse lock. In production, `GAMES_ORIGIN` becomes a separate domain.
+
+## Checks
+
+```
+pnpm typecheck
+pnpm smoke
+```
+
+`pnpm smoke` needs the site running. It drives the site over HTTP the way a browser would. It covers:
+
+- **Accounts:** sign-up and sign-in rules.
+- **Uploads:** the build checks.
+- **Pages and visibility:** browsing, search, filters, drafts, and unlisted games.
+- **Game files:** they're served only on the games origin.
+- **Game changes:** play counts, new builds, editing, and deleting.
+
+It doesn't check real controllers. Try those by hand on the home page's controller panel and in Star Scramble.
+
+## Code
+
+| Path | What |
+| --- | --- |
+| `src/app/(site)/` | The pages with the site header: home, games, a game's page, edit, profiles, settings, upload, sign up, and sign in |
+| `src/app/play/[slug]/` | The full-screen play page |
+| `src/app/api/` | Form endpoints for accounts, profiles, games, builds, and play counts |
+| `src/app/g/` | Game files, served on the games origin |
+| `src/app/media/` | Uploaded images |
+| `src/lib/` | Server code: database, sign-in, build checks, game queries |
+| `src/components/` | Page parts and forms. `PadPanel` is the live controller on the home page. `Player` runs the play page. |
+| `samples/star-scramble/` | The sample game the seed uploads |
+| `scripts/smoke.mjs` | The end-to-end checks and the seed |
+
+Database changes go at the end of the list in `src/lib/db.ts`. Don't edit one that has already run.
+
+## Not built yet
+
+- **Account recovery:** email sign-in and password reset need an email service.
+- **Rollback:** old builds are kept, but there's no button to roll back to one yet.
+- **Safety:** reporting, admin tools, and the legal pages.
+- **Production hosting:** a separate games domain, object storage, and Neon instead of SQLite.

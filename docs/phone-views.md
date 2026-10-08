@@ -1,5 +1,7 @@
 # Phone Views
 
+> **R&D, not V1.** This was built or designed before the October 8, 2026 decision that V1 is a website for web games in Chrome. See [v1.md](v1.md).
+
 Every phone screen becomes a **view** built from **widgets**, described as data, and drawn by one runtime on the phone. A controller, a private screen, and a question are all views. Games reuse the built-in views, change them, or define their own, and every definition is checked by the same rules before it reaches a phone.
 
 ## Why

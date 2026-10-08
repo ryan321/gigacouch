@@ -1,5 +1,7 @@
 # Phone Controller Ideas
 
+> **R&D, not V1.** This was built or designed before the October 8, 2026 decision that V1 is a website for web games in Chrome. See [v1.md](v1.md).
+
 Every idea here except tilt is now built, as features games opt into. Tilt waits on HTTPS. The Phone Lab on the shelf has a station for each one.
 
 ## Status

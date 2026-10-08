@@ -1,8 +1,32 @@
 # V1 Implementation Plan
 
-The current architecture is [docs/GIGACOUCH_ARCHITECTURE_v2.md](docs/GIGACOUCH_ARCHITECTURE_v2.md). The browser slice in progress is the web-1 shell in [runtimes/web](runtimes/web/README.md): a Rust loopback origin, a 16-slot bridge, and an Electron kiosk. The partial CEF source tree on the external drive is not that browser. The Godot player and SDK remain the existing prototype; v2 still treats a managed Godot runtime as a later first-class target, and this plan does not add one.
+V1 is a website: accounts, profiles, uploading web games, browsing, and playing in Chrome with the controllers Chrome supports. The scope, decisions, and open questions are in [docs/v1.md](docs/v1.md). Everything below the V1 checklist is research and prototyping from before that decision (October 8, 2026). It stays in the repo and is not V1.
 
-The checklist below is the existing Godot prototype. That prototype stays in the repo. It is not the V1 shipping runtime.
+## V1: web games in Chrome
+
+- [ ] Decide sign-in, the games domain, file storage, size limits, launch social features, and review before publishing ([open questions](docs/v1.md#open-questions)).
+- [x] Local site in `apps/site` (Next.js and React, SQLite, files on disk). The `pnpm smoke` checks pass on the dev and production servers. A stand-in Chromium checked the pages at desktop and phone widths. It also checked keyboard play in the sandboxed frame, and that a game can't read the sign-in cookie or the site's page. Real controllers have not been tried on it.
+- [x] Accounts and profiles, locally: sign up with email, handle, password, and a 13+ check; sign in with email or handle; sign out; display name, avatar, and bio.
+- [ ] Account recovery, and accounts on Neon PostgreSQL for production.
+- [x] Upload a zipped web build with title, description, cover, screenshots, tags, players, and controls. Public, unlisted, and draft; edit; new builds; delete.
+- [ ] Rollback to an earlier build. Builds are kept, but there's no rollback button yet.
+- [x] Upload checks with plain-language errors: index.html at the top, a zipped folder accepted, safe paths, web file types only, size limits, and threaded Godot exports refused. Threaded Unity builds are not detected yet.
+- [ ] Files in object storage for production.
+- [x] Games served from a separate origin locally (`127.0.0.1` beside `localhost`), with WebAssembly and precompressed-file headers, long caching, and framing limited to the site.
+- [ ] A separate games domain with one subdomain per game, on the Public Suffix List.
+- [x] Home with a live controller panel, new games, and most played; browse with search, players, controls, tags, and sort; a page for each game. Featured games are not built.
+- [x] Play page: sandboxed frame, full screen, a check for each controller, keyboard focus in the game, and play counts.
+- [ ] Safety: report button, admin unpublish and suspend, terms, content rules, privacy policy, and copyright takedown.
+- [ ] 15 to 20 launch games covering single-player, local multiplayer, keyboard, and pads.
+- [ ] Launch checks: Chrome on Windows and macOS with Xbox, PlayStation, and Switch Pro pads; uploads from Godot, Unity, and three.js; backups and a restore drill.
+
+# R&D and prototypes
+
+Everything from here down was built before the V1 decision. It is kept for reference and later stages.
+
+The R&D architecture is [docs/GIGACOUCH_ARCHITECTURE_v2.md](docs/GIGACOUCH_ARCHITECTURE_v2.md). The browser slice in progress is the web-1 shell in [runtimes/web](runtimes/web/README.md): a Rust loopback origin, a 16-slot bridge, and an Electron kiosk. The partial CEF source tree on the external drive is not that browser. The Godot player and SDK remain the existing prototype; v2 still treats a managed Godot runtime as a later first-class target, and this plan does not add one.
+
+The Godot checklist below is the existing Godot prototype. That prototype stays in the repo. It is not the V1 shipping runtime.
 
 ## Web-1 browser prototype
 

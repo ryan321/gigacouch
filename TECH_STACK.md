@@ -1,5 +1,7 @@
 # Giga Couch: Technical Architecture and Build Plan
 
+> **V1 changed on October 8, 2026.** V1 is a website for uploading, browsing, and playing web games in Chrome. See [docs/v1.md](docs/v1.md). Where this document describes V1 differently, such as Godot first, an installed app, or phones as controllers, docs/v1.md wins. Those parts describe research and later stages.
+
 Status: target architecture, based on [PRODUCT.md](PRODUCT.md). See [IMPLEMENTATION_PLAN.md](IMPLEMENTATION_PLAN.md) for the execution checklist and [README.md](README.md) for what is currently implemented.
 
 Creator-facing deliverables and the current/proposed workflows are defined in [GDK.md](GDK.md). The GDK includes the SDK, starter projects, tools and documentation.

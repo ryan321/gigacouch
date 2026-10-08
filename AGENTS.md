@@ -10,8 +10,9 @@
 
 ## Architecture
 
-- Read `PRODUCT.md`, `TECH_STACK.md`, `IMPLEMENTATION_PLAN.md`, and `docs/GIGACOUCH_ARCHITECTURE_v2.md` for scope and current milestones.
-- The current game browser is the web-1 shell in `runtimes/web/`: a Rust loopback origin plus the Electron kiosk. `python3 runtimes/web/fetch_shell.py` is the only supported way to download that shell, and it writes to `/Volumes/External`. Do not resume the partial CEF/Chromium compile under `/Volumes/External/projects/gigacouch-chromium` unless asked. Do not add a new native Godot runtime; the existing Godot prototype stays.
+- V1 is the website in `docs/v1.md`: accounts, profiles, uploading web games, browsing, and playing in plain Chrome with the controllers Chrome supports. It lives in `apps/site`, a Next.js and React app that uses SQLite locally; `apps/site/README.md` explains it. Everything else in the repo is R&D and prototyping; keep it, and treat `docs/v1.md` as the scope when docs disagree.
+- Read `docs/v1.md` and the V1 checklist at the top of `IMPLEMENTATION_PLAN.md` first. `PRODUCT.md`, `TECH_STACK.md`, and `docs/GIGACOUCH_ARCHITECTURE_v2.md` describe the R&D direction and later stages.
+- The R&D game browser is the web-1 shell in `runtimes/web/`: a Rust loopback origin plus the Electron kiosk. `python3 runtimes/web/fetch_shell.py` is the only supported way to download that shell, and it writes to `/Volumes/External`. Do not resume the partial CEF/Chromium compile under `/Volumes/External/projects/gigacouch-chromium` unless asked. Do not add a new native Godot runtime; the existing Godot prototype stays.
 - On this Mac a Chromium source tree, if one is used, stays at `/Volumes/External/projects/gigacouch-chromium`. Do not check Chromium out onto the internal disk.
 - Games execute on player-owned computers. SQLite is local; Neon PostgreSQL is accessible through the platform backend only.
 - Reuse one installed runtime for compatible games. Keep game processes separate from the launcher and privileged host operations.
@@ -20,6 +21,7 @@
 
 ## Verification
 
+- For `apps/site` changes, run `pnpm typecheck` and `pnpm build` there, then `pnpm smoke` against a running site. Smoke checks don't verify real controllers.
 - Run `cargo fmt --all -- --check`, `cargo test --workspace --locked`, and `cargo clippy --workspace --all-targets --locked -- -D warnings` for relevant Rust changes.
 - For SDK changes, run `python3 scripts/test_sdk.py` against an already-installed supported engine. It uses our own doctor command and never installs an engine.
 - Keep the Rust host and SDK on the shared policy in `sdk/addons/couchgames/runtime_policy.json`; add compatibility cases to `sdk/tests/runtime_versions.json` when changing it.

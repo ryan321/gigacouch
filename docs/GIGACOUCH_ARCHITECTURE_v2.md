@@ -1,5 +1,7 @@
 # GigaCouch Runtime Architecture
 
+> **V1 changed on October 8, 2026.** V1 is a website for uploading, browsing, and playing web games in Chrome. See [docs/v1.md](v1.md). Where this document describes V1 differently, such as Godot first, an installed app, or phones as controllers, docs/v1.md wins. Those parts describe research and later stages.
+
 **Status:** Proposed architecture for implementation  
 **Audience:** AI coding agents, engineers, and technical contributors  
 **Updated:** September 22, 2026

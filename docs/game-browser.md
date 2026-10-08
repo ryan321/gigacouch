@@ -1,5 +1,7 @@
 # Giga Couch Game Browser
 
+> **R&D, not V1.** This was built or designed before the October 8, 2026 decision that V1 is a website for web games in Chrome. See [v1.md](v1.md).
+
 The Giga Couch Game Browser is the living-room app for gigacouch.com. It is a Chromium shell aimed at a TV and a pile of controllers. A web game still runs in Chrome. The Game Browser is the better place to play it on a couch, and the place a Godot game is launched from.
 
 ## Motivation
