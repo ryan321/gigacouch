@@ -21,6 +21,7 @@ export default async function UploadPage() {
           <li>Godot: in the Web export options, turn off Thread Support.</li>
           <li>Unity: Brotli and Gzip builds both work.</li>
           <li>Read controllers with the standard gamepad API. Chrome shows up to four pads.</li>
+          <li>Holding Select and Start together opens Giga Couch&apos;s menu, so don&apos;t use that pair for anything. Use Start to pause.</li>
           <li>Save progress in the browser, with localStorage or IndexedDB.</li>
         </ul>
       </div>

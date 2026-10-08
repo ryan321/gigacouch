@@ -245,6 +245,20 @@ legend { font-size: 14px; font-weight: 600; margin-bottom: 9px; padding: 0; }
 .player-slot.pressed { background: color-mix(in srgb, var(--mint) 14%, var(--panel)); }
 .ready .back { color: var(--muted); font-size: 15px; }
 
+/* The system menu, over a running game */
+.system-menu { position: absolute; inset: 0; z-index: 5; display: grid; place-items: center; padding: 24px; background: rgba(16, 23, 34, 0.72); backdrop-filter: blur(6px); }
+.menu-panel { width: min(420px, 100%); background: linear-gradient(180deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0) 40%), var(--panel); border: 1px solid var(--line); border-radius: 18px; padding: 26px; box-shadow: var(--shadow); }
+.menu-panel h2 { font-size: 26px; margin-bottom: 18px; }
+.menu-items { display: grid; gap: 8px; }
+.menu-item { text-align: left; font: inherit; font-size: 18px; font-weight: 600; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; cursor: pointer; transition: background var(--fast), border-color var(--fast), color var(--fast); }
+.menu-item:hover { border-color: var(--mint); }
+.menu-item.selected { background: var(--mint); border-color: var(--mint); color: var(--bg); }
+.menu-item:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--glow); }
+.menu-note { margin-top: 14px; color: var(--amber); font-size: 14px; }
+.menu-help { margin-top: 16px; font-size: 14px; }
+.hold-toast { position: absolute; z-index: 4; top: 18px; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 14px; padding: 10px 16px; border-radius: 999px; background: rgba(25, 35, 49, 0.94); border: 1px solid var(--line); font-size: 14px; box-shadow: var(--shadow); }
+.hold-toast .progress { width: 90px; flex: none; }
+
 @media (max-width: 900px) {
   .hero, .game-top { grid-template-columns: 1fr; }
   .hero { padding-top: 40px; gap: 36px; }

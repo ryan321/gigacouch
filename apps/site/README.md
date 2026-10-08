@@ -55,6 +55,17 @@ Locally, Chrome treats `localhost` and `127.0.0.1` as different sites. The same 
 
 The play page shows the game in a sandboxed frame from the games origin. The frame can use pads, full screen, sound, and mouse lock. In production, `GAMES_ORIGIN` becomes a separate domain.
 
+## Controllers on the play page
+
+The play page reads pads itself, alongside the game. Chrome gives pad data to every visible frame, whichever one has focus.
+
+- **Starting:** the bottom face button (A on Xbox) starts the game.
+- **The system menu:** holding Select and Start together for 0.8 seconds opens it, and so does Home where Chrome reports it. It has Resume, Restart game, Full screen, and Leave game.
+- **A hint:** holding just one of the two buttons shows a hint to hold both. It also shows the page is seeing the press.
+- **Button names:** the ready screen and the menu name the buttons for the pad in use, so Xbox, PlayStation, and Switch players see their own labels.
+
+`src/components/pads.ts` has the button numbers, the names, and the press tracking. `src/components/Player.tsx` has the ready screen and the menu.
+
 ## Checks
 
 ```

@@ -6,6 +6,8 @@ Some cheap “PS4/PC” and Xbox 360-style wired pads talk **Xbox 360 XID** (`ff
 
 This is the same host-file pattern as the native Wii reader. It is not a kernel driver and it is not used for HID pads.
 
+**Chrome does not see these pads on a Mac.** The helper only feeds the Godot player. Chrome's Mac driver for Xbox-style pads covers a fixed list of models, mostly Microsoft's own, so third-party XID and GIP pads such as the Nacon PC Compact (`146b:0603`) are invisible to web games. [v1.md](v1.md#wired-xbox-style-pads-on-macos) has the details and the pads that do work.
+
 ## Run
 
 ```sh

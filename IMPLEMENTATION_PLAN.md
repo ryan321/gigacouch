@@ -16,6 +16,7 @@ V1 is a website: accounts, profiles, uploading web games, browsing, and playing 
 - [ ] A separate games domain with one subdomain per game, on the Public Suffix List.
 - [x] Home with a live controller panel, new games, and most played; browse with search, players, controls, tags, and sort; a page for each game. Featured games are not built.
 - [x] Play page: sandboxed frame, full screen, a check for each controller, keyboard focus in the game, and play counts.
+- [x] Controller start and the system menu: A starts the game. Holding Select and Start, or pressing Home, opens Resume, Restart game, Full screen, and Leave game, with d-pad, A, and B. Holding one of the two buttons shows a hint. Checked with a stand-in pad in Chromium, and by hand in Chrome on a Mac with an Xbox Series controller over Bluetooth. The Xbox button likely never reaches Chrome on a Mac.
 - [ ] Safety: report button, admin unpublish and suspend, terms, content rules, privacy policy, and copyright takedown.
 - [ ] 15 to 20 launch games covering single-player, local multiplayer, keyboard, and pads.
 - [ ] Launch checks: Chrome on Windows and macOS with Xbox, PlayStation, and Switch Pro pads; uploads from Godot, Unity, and three.js; backups and a restore drill.
