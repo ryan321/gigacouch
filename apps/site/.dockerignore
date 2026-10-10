@@ -1,0 +1,8 @@
+node_modules
+.next
+data
+.deploy
+*.tsbuildinfo
+.env*
+samples
+scripts

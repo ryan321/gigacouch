@@ -6,6 +6,9 @@ V1 is a website: accounts, profiles, uploading web games, browsing, and playing 
 
 - [ ] Decide sign-in, the games domain, file storage, size limits, launch social features, and review before publishing ([open questions](docs/v1.md#open-questions)).
 - [x] Local site in `apps/site` (Next.js and React, SQLite, files on disk). The `pnpm smoke` checks pass on the dev and production servers. A stand-in Chromium checked the pages at desktop and phone widths. It also checked keyboard play in the sandboxed frame, and that a game can't read the sign-in cookie or the site's page. Real controllers have not been tried on it.
+- [x] Deploy the current website for a Fly playtest: standalone Next server, persistent SQLite/builds, HTTPS site and
+  a separate games gateway. Migrate the local library's three current builds, accounts and media without browser
+  sessions; retain the historical Rust platform data. The deployment workflow lives in `apps/site/README.md`.
 - [x] Accounts and profiles, locally: sign up with email, handle, password, and a 13+ check; sign in with email or handle; sign out; display name, avatar, and bio.
 - [ ] Account recovery, and accounts on Neon PostgreSQL for production.
 - [x] Upload a zipped web build with title, description, cover, screenshots, tags, players, and controls. Public, unlisted, and draft; edit; new builds; delete.

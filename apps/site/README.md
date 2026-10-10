@@ -25,6 +25,46 @@ From the repo root, `pnpm site` starts the dev server and `pnpm site:seed` seeds
 
 For a production build, run `pnpm build`, then `pnpm start`.
 
+## Fly playtest deployment
+
+The port-3000 site is deployed at **https://gigacouch-platform.fly.dev**. The existing Fly machine and volume are
+reused; the historical Rust platform data remains under `/data`, while this site uses `/data/site`.
+
+From this folder, deploy with the installed Fly CLI:
+
+```sh
+fly deploy --remote-only --ha=false
+cd game-origin
+fly deploy --remote-only --ha=false
+```
+
+The remote Docker build installs the locked dependencies and creates Next's standalone server. No local runtime
+or toolchain is installed. Deploy from `apps/site`, since the root Dockerfile and Fly config still describe the
+R&D platform. Use a single site machine while SQLite and build files live on its volume.
+
+`gigacouch-games.fly.dev` is a small gateway that only routes game-file requests. Fly's replay header preserves
+the games hostname while sending the request to the site machine, so both origins use the same build files and
+new uploads work immediately. Other game-origin paths redirect to the site; encoded traversal is refused before
+nginx normalizes paths. Site cookies are secure and host-only. This is a shared games origin for the playtest;
+per-game domains, object storage and Neon remain future work.
+
+For the **first migration only**, `scripts/snapshot-for-fly.py --out <new-external-staging-folder>
+--credentials <private-local-file>` backs up local SQLite consistently and archives the current game builds and
+media. It removes sessions and unused smoke accounts, rotates the deployed demo password, and preserves other
+accounts. It never changes local data. Historical build files stay local; subsequent uploaded versions are retained
+on Fly normally. The initial transfer used a temporary Docker image containing the archive and an import script:
+it validated SQLite and all three entry points, refused to overwrite live accounts or games, and retained the
+previous data directory before switching to the snapshot. The regular site image was then restored with
+`fly deploy --image <original-site-image> --ha=false`. Keep migration images and archives private. Never import
+a local snapshot over an established live site: that would
+discard newer accounts, uploads and plays. The demo credential file is private, outside the repository and archive.
+
+Run the same checks on Fly with:
+
+```sh
+SITE=https://gigacouch-platform.fly.dev GAMES=https://gigacouch-games.fly.dev pnpm smoke
+```
+
 ## Where things are kept
 
 Everything lives in `data/`, which git ignores. Delete it to start over.
@@ -104,4 +144,4 @@ Database changes go at the end of the list in `src/lib/db.ts`. Don't edit one th
 - **Account recovery:** email sign-in and password reset need an email service.
 - **Rollback:** old builds are kept, but there's no button to roll back to one yet.
 - **Safety:** reporting, admin tools, and the legal pages.
-- **Production hosting:** a separate games domain, object storage, and Neon instead of SQLite.
+- **Production hosting:** per-game domains, object storage, and Neon instead of SQLite.

@@ -1,6 +1,7 @@
 # Giga Couch
 
-A website for making, sharing, and playing web games in Chrome with a game controller. The public site is [gigacouch.com](https://gigacouch.com).
+A website for making, sharing, and playing web games in Chrome with a game controller. The current V1 playtest is
+at [gigacouch-platform.fly.dev](https://gigacouch-platform.fly.dev).
 
 **V1 is the website: accounts, profiles, uploading web games, browsing, and playing in Chrome. See [docs/v1.md](docs/v1.md).** It lives in [apps/site](apps/site/README.md). To run it locally, run `pnpm site`, open http://localhost:3000, and run `pnpm site:seed` for a demo account and game. The Game Browser app, phones as controllers, the Godot SDK and player, and the local library described below are research and prototypes from before that decision. They stay in the repo and are not V1.
 
@@ -38,16 +39,20 @@ Every couch stage is a full 3D model. Drag over the couch to rotate in any direc
 The motion control pauses the scene and CSS animations. Reduced-motion preferences are respected, normal scene rendering stops when the hero is offscreen or the tab is hidden, and a branded fallback appears when WebGL is unavailable. The landing page has its own stylesheet; account styling remains separate.
 
 
-### Deploy the platform to Fly
+### Deploy V1 to Fly
 
-The existing app is `gigacouch-platform`; `fly.toml` and `Dockerfile` are in the repository root. With the installed Fly CLI authenticated, deploy from this directory:
+The existing `gigacouch-platform` app now runs the Next.js website from `apps/site`, with the game files routed
+through `gigacouch-games`. With the installed Fly CLI authenticated:
 
 ```sh
-flyctl deploy --remote-only --app gigacouch-platform
+cd apps/site
+flyctl deploy --remote-only --ha=false
 flyctl status --app gigacouch-platform
 ```
 
-The remote builder compiles the Rust server and embeds the landing HTML, CSS, JavaScript, mark, and WOFF2 fonts. `.dockerignore` explicitly includes those fonts. The command sends the current local build context, including uncommitted files that are not ignored; review or isolate local changes when deploying only a particular commit. Pushing to GitHub does not deploy this app: the configured GitHub workflow runs manual Rust checks only. The app is available at `https://gigacouch-platform.fly.dev`.
+See [the site deployment notes](apps/site/README.md#fly-playtest-deployment) for the games gateway, data migration
+and checks. The root Dockerfile and Fly configuration are historical Rust-platform files; deploying them to the
+same app would replace V1. Pushing to GitHub does not automatically deploy either app.
 
 ## GDK setup preview
 
