@@ -92,7 +92,7 @@
         snapshot = {...snapshot,error:''};
         const previous = entries.find(entry => entry.src === item.src);
         if (previous && ['queued','downloading','removing'].includes(previous.status)) return;
-        if (!previous) entries = [...entries,{...item,status:'queued',loaded:0,total:0}];
+        if (!previous) entries = [...entries,{...item,status:'queued',loaded:0,total:Number.isFinite(item.downloadBytes) ? Math.max(0,item.downloadBytes) : 0}];
         enqueue(item.src,'download');
       },
       pause(src) {

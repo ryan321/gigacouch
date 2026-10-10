@@ -97,10 +97,16 @@ The play page shows the game in a sandboxed frame from the games origin. The fra
 
 ## Controllers on the play page
 
+Game pages and the play screen show the full download size before starting. Progress on the play screen,
+upper-right status and downloaded-games library shows percentage and downloaded/total decimal MB. Files
+are saved in this browser’s storage on this device, not the Downloads folder; clearing site data removes them.
+
 The play screen starts with **Download**. Clicking it downloads the uploaded build into browser storage and
 shows progress; the button becomes **Play** only after every file is saved. The game does not execute during
 the download. Play enters the game and full screen, and counts the play. A controller's bottom face button
-does the same two steps. Failed or storage-limited downloads offer Retry; completed files are reused.
+does the same two steps. Transient transfer failures retry twice automatically; large files time out only
+after 60 seconds without incoming bytes. Other failures identify the file or storage problem and offer Retry;
+completed files are reused. Manifest sizes exclude macOS transfer metadata.
 
 Downloads continue across site navigation. The upper-right Downloads panel shows the active transfer and queue;
 `/downloads` lists saved builds, size, saved date, Pause/Resume and Remove. Closing or reloading the tab pauses
@@ -123,11 +129,14 @@ site on port 3101 using the existing Node 22, shuts that server down, and opens 
 for queue ordering. The checks exercise navigation during download, pause/reload/resume, cold offline launch,
 cache eviction, recovery, removal, and phone/tablet layouts. The test profile stays on the external drive. Local
 cold-offline checks passed for Star Scramble and Spooky Game; real phone hardware and controllers remain untested.
+`FAIL_DOWNLOADS=1 ISOLATED_TEST=1` checks recovery from two blocked asset requests, then cold offline play.
 `WORKER_UPGRADE=1 ISOLATED_TEST=1` also checks migration from the previous download worker and loader. The
 downloader explicitly updates and waits for the new worker before declaring the saved game ready offline.
 For a live deployed site, use `SITE=<origin> ONLINE_ONLY=1` to check navigation and responsive layouts; Electron's
 network emulation alone does not reliably cut off service-worker requests, so it is not our cold-offline proof.
-The Fly deployment passed that browser check and all 40 HTTP smoke checks. Downloads made before the library
+The Fly deployment passed all 41 HTTP smoke checks. The previously failing Spooky download also completed
+in the existing Chrome profile after this update, showing Play and the full 305.3 MB saved. The original
+error did not report its cause, so its precise cause remains unconfirmed. Downloads made before the library
 was introduced need one click of Download to add their listing and offline helpers; existing game files are reused.
 
 The play page reads pads itself, alongside the game. Chrome gives pad data to every visible frame, whichever one has focus.

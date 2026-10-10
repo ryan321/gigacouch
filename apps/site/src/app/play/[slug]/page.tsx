@@ -1,3 +1,4 @@
+import { buildDownloadManifest } from "@/lib/download";
 import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { Player } from "@/components/Player";
@@ -24,7 +25,7 @@ export default async function PlayPage({ params }: Props) {
   const controls = `${playersText(game.playersMin, game.playersMax)}. Play with a ${orList(controlsList(game).map((name) => name.toLowerCase()))}.`;
   return (
     <Player
-      game={{ id: game.id, slug: game.slug, title: game.title, playersMax: game.playersMax, gamepad: game.gamepad, keyboard: game.keyboard, mouse: game.mouse }}
+      game={{ downloadBytes: buildDownloadManifest(game.buildId).bytes, id: game.id, slug: game.slug, title: game.title, playersMax: game.playersMax, gamepad: game.gamepad, keyboard: game.keyboard, mouse: game.mouse }}
       src={`${GAMES_ORIGIN}/g/${game.buildId}/index.html`}
       controls={controls}
     />

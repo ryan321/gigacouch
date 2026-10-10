@@ -1,5 +1,6 @@
 "use client";
 
+import { downloadSize, downloadProgress } from "@/lib/download-format";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -7,7 +8,7 @@ import { useDownloads, type Download } from "./Downloads";
 import { BUTTON, PAD_SLOTS, PressWatcher, buttonNames, connectedPads, padName, type ButtonNames } from "./pads";
 
 type Props = {
-  game: { id: string; slug: string; title: string; playersMax: number; gamepad: boolean; keyboard: boolean; mouse: boolean };
+  game: { downloadBytes?: number; id: string; slug: string; title: string; playersMax: number; gamepad: boolean; keyboard: boolean; mouse: boolean };
   src: string;
   controls: string;
 };
@@ -31,7 +32,7 @@ export function Player({ game, src, controls }: Props) {
 
   const [started, setStarted] = useState(false);
   const {manager, state:downloads} = useDownloads();
-  const download: Download | {status:"idle"; loaded:number; total:number; message?:string} = downloads.entries.find(item=>item.src===src) ?? {status:"idle",loaded:0,total:0};
+  const download: Download | {status:"idle"; loaded:number; total:number; message?:string} = downloads.entries.find(item=>item.src===src) ?? {status:"idle",loaded:0,total:game.downloadBytes ?? 0};
   const waiting = ["queued","downloading","checking","removing"].includes(download.status);
   const [run, setRun] = useState(0);
   const [slots, setSlots] = useState<Slot[]>(Array(PAD_SLOTS).fill(null));
@@ -305,11 +306,13 @@ export function Player({ game, src, controls }: Props) {
                 {game.gamepad ? `Or press ${names.south} on a controller.` : "Or press Enter."}
               </span>
             </div>
+            {!!(download.total || game.downloadBytes) && <p className="muted">Download size: {downloadSize(download.total || game.downloadBytes || 0)}</p>}
+            <p className="muted">Saved in this browser’s storage on this device, not your Downloads folder. Clearing browser data removes saved games.</p>
             {downloads.error && <p role="alert">{downloads.error}</p>}
             {download.status !== "idle" && <div className="game-download" aria-live="polite">
               {download.status === "downloading" && <>
                 <progress aria-label="Game download" max={100} value={download.total ? Math.min(99, Math.floor(download.loaded / download.total * 100)) : 0} />
-                <p className="muted">{download.total ? `${Math.min(99, Math.floor(download.loaded / download.total * 100))}% downloaded` : "Preparing download…"}</p>
+                <p className="muted">{downloadProgress(download.loaded, download.total)}</p>
               </>}
               {download.status === "ready" && <p>Download complete. Ready to play.</p>}
               {download.status === "error" && <p role="alert">{download.message}</p>}

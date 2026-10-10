@@ -1,8 +1,9 @@
 "use client";
+import { downloadSize, downloadProgress } from "@/lib/download-format";
 import Link from "next/link";
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 
-export type SavedGame = { id:string; slug:string; title:string; src:string; controls:string; playersMax:number; gamepad:boolean; keyboard:boolean; mouse:boolean };
+export type SavedGame = { downloadBytes?:number; id:string; slug:string; title:string; src:string; controls:string; playersMax:number; gamepad:boolean; keyboard:boolean; mouse:boolean };
 export type Download = SavedGame & {status:"queued" | "downloading" | "checking" | "ready" | "paused" | "error" | "removing"; loaded:number; total:number; downloadedAt?:number; message?:string};
 type Snapshot = {entries:Download[]; error:string; online:boolean};
 type Manager = {subscribe:(fn:()=>void)=>()=>void; getSnapshot:()=>Snapshot; download:(game:SavedGame)=>Promise<void>; pause:(src:string)=>void; remove:(src:string)=>void; check:(src:string)=>void; forget:(src:string)=>void};
@@ -10,8 +11,8 @@ declare global { interface Window { createCouchDownloads?:(origin:string)=>Manag
 const Context = createContext<{manager:Manager|null; state:Snapshot}>({manager:null,state:{entries:[],error:"",online:true}});
 export const useDownloads = () => useContext(Context);
 export const percent = (entry:Download) => entry.status === "ready" ? 100 : entry.total ? Math.min(99,Math.floor(entry.loaded/entry.total*100)) : 0;
-export const size = (bytes:number) => bytes < 1024*1024 ? `${Math.ceil(bytes/1024)} KB` : `${(bytes/1024/1024).toFixed(1)} MB`;
-export const statusText = (item:Download) => ({queued:"Queued",downloading:`Downloading · ${percent(item)}%`,checking:"Checking saved files…",ready:"Ready to play offline",paused:"Paused",error:"Needs attention",removing:"Removing…"})[item.status];
+export const size = downloadSize;
+export const statusText = (item:Download) => ({queued:"Queued",downloading:`Downloading · ${downloadProgress(item.loaded,item.total)}`,checking:"Checking saved files…",ready:"Ready to play offline",paused:"Paused",error:"Needs attention",removing:"Removing…"})[item.status];
 
 export function DownloadProvider({children,gamesOrigin}:{children:ReactNode;gamesOrigin:string}) {
   const [manager,setManager] = useState<Manager|null>(null);
@@ -40,7 +41,7 @@ export function DownloadProvider({children,gamesOrigin}:{children:ReactNode;game
     {children}
     <aside className="download-corner" aria-label="Downloads">
       <button className="button secondary" aria-expanded={open} aria-controls="download-panel" onClick={()=>setOpen(!open)}>
-        ↓ {running ? `${percent(running)}%` : "Downloads"}{queued>1 ? ` · ${queued}` : ""}
+        ↓ {running ? downloadProgress(running.loaded,running.total) : "Downloads"}{queued>1 ? ` · ${queued}` : ""}
       </button>
       {open && <section className="download-panel stack" id="download-panel" onKeyDown={event=>{if(event.key==="Escape")setOpen(false)}}>
         <h2>Your downloads</h2>
@@ -62,8 +63,8 @@ export function DownloadLibrary() {
   const bytes=state.entries.reduce((sum,item)=>sum+item.loaded,0);
   return <div className="page library-page stack">
     <h1>Downloaded games</h1>
-    <p className="lede">Your games, saved on this device. Download while you browse and play when you’re ready.</p>
-    <p className="muted">{size(bytes)} saved · {state.entries.length} saved {state.entries.length===1?"version":"versions"}. Browsers may clear saved files when space runs low.</p>
+    <p className="lede">Your games, saved in this browser’s storage on this device. Download while you browse and play when you’re ready.</p>
+    <p className="muted">{size(bytes)} saved · {state.entries.length} saved {state.entries.length===1?"version":"versions"}. Clearing browser data removes saved games. Browsers may also clear them when space runs low.</p>
     <a href="/offline.html" className="button secondary">Open offline library</a>
     {state.error && <p role="alert">{state.error}</p>}
     {!state.entries.length && <div className="download-card stack"><h2>Your library starts here</h2><p>Choose a game, then select Download on its play screen.</p><Link className="button" href="/games">Browse games</Link></div>}
@@ -72,7 +73,7 @@ export function DownloadLibrary() {
       <p>{statusText(item)}</p>
       {item.downloadedAt && <p className="muted">Saved {new Date(item.downloadedAt).toLocaleString()}</p>}
       {["queued","downloading"].includes(item.status) && <progress aria-label={`${item.title} download`} max={100} value={percent(item)}/>}
-      <p className="muted">{size(item.loaded)}{item.total ? ` / ${size(item.total)}` : ""}</p>
+      <p className="muted">Download size: {item.total ? size(item.total) : "Calculating…"} · {size(item.loaded)} downloaded</p>
       {item.message && <p role={item.status==="error"?"alert":undefined}>{item.message}</p>}
       {state.entries.some(other=>other.id===item.id && other.src!==item.src) && <p className="muted">Multiple versions saved. Remove the older one when you no longer need it.</p>}
       <div className="download-actions">

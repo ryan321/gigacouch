@@ -1,6 +1,6 @@
 (() => {
   const $ = id => document.getElementById(id);
-  const size = bytes => bytes < 1024*1024 ? Math.ceil(bytes/1024)+' KB' : (bytes/1024/1024).toFixed(1)+' MB';
+  const size = bytes => (bytes/1_000_000).toFixed(bytes > 0 && bytes < 100_000 ? 3 : 1)+' MB';
   let stored;
   try { stored=JSON.parse(localStorage.getItem('gigacouch-downloads-v2')||'{}'); } catch { stored={}; }
   let origin;
@@ -32,11 +32,11 @@
     $('storage').textContent=size(entries.reduce((n,item)=>n+item.loaded,0))+' saved. Remove games to free space.';
     $('games').replaceChildren(...entries.map(item=>{
       const card=node('article','','card');card.append(node('h2',item.title),node('p',item.controls,'muted'));
-      const status={ready:'Ready to play offline',checking:'Checking saved files…',paused:'Paused',queued:'Queued',removing:'Removing…',error:'Needs attention',downloading:'Downloading · '+(item.total?Math.min(99,Math.floor(item.loaded/item.total*100)):0)+'%'}[item.status];
+      const status={ready:'Ready to play offline',checking:'Checking saved files…',paused:'Paused',queued:'Queued',removing:'Removing…',error:'Needs attention',downloading:'Downloading · '+(item.total?Math.min(99,Math.floor(item.loaded/item.total*100)):0)+'% · '+size(item.loaded)+' of '+size(item.total)}[item.status];
       card.append(node('p',status));
       if(item.downloadedAt)card.append(node('p','Saved '+new Date(item.downloadedAt).toLocaleString(),'muted'));
       if(item.status==='downloading'){const bar=document.createElement('progress');bar.max=item.total||1;bar.value=item.loaded;bar.setAttribute('aria-label',item.title+' download');card.append(bar)}
-      card.append(node('p',size(item.loaded)+(item.total?' / '+size(item.total):''),'muted'));
+      card.append(node('p','Download size: '+(item.total?size(item.total):'Calculating…')+' · '+size(item.loaded)+' downloaded','muted'));
       if(item.message)card.append(node('p',item.message));
       const actions=node('div','','actions');
       if(item.status==='ready')actions.append(button('Play',()=>launch(item)));

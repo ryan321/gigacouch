@@ -163,6 +163,8 @@ async function smoke() {
   const manifestResponse = await fetch(`${GAMES}/g/${build}/index.html?couch=manifest`);
   const manifest = await manifestResponse.json();
   check("Download manifest lists the uploaded files and size", manifestResponse.ok && manifest.files.some(file => file.path === "index.html") && manifest.bytes > 0);
+  const expectedSize = (manifest.bytes / 1_000_000).toFixed(manifest.bytes < 100_000 ? 3 : 1);
+  check("Game and play pages show the manifest download size and storage location", [pageText,play].every(html => html.includes("Download size") && html.includes(expectedSize) && html.includes("browser’s storage")));
   const privateManifest = await fetch(`${SITE}/g/${build}/index.html?couch=manifest`);
   check("Download helpers stay off the account origin", privateManifest.status === 404);
   const worker = await fetch(`${GAMES}/g/${build}/index.html?couch=worker`);

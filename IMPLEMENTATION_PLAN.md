@@ -26,6 +26,8 @@ V1 is a website: accounts, profiles, uploading web games, browsing, and playing 
   saved size/date, and removal. The public offline shell reopens without the server; per-build caches stay on
   the games origin. Reopening checks for missing files; new builds coexist with saved versions. An isolated
   standalone server was shut down before a fresh-window launch of Star Scramble and the complete web Spooky Game.
+- [x] Show download size before starting, percentage plus downloaded/total MB during transfer, and the browser
+  storage location. Retry transient transfers automatically; retain completed files and report specific failures.
 - [x] Responsive download status, online/offline libraries, and touch-sized menus checked at phone portrait,
   landscape, and tablet sizes in Electron. Keep the same adaptive web builds.
 - [ ] Test games and offline storage on actual mobile devices; tune game graphics/controls where those tests

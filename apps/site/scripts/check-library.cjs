@@ -23,8 +23,12 @@ app.whenReady().then(async()=>{
   const partition='persist:library-check-'+Date.now();
   const make=()=>{const w=new BrowserWindow({width:1200,height:850,useContentSize:true,show:false,focusable:false,webPreferences:{partition,backgroundThrottling:false}});w.webContents.on('console-message',e=>{if(e.level==='error')console.error('PAGE',e.message)});w.setOpacity(0);w.setIgnoreMouseEvents(true);w.showInactive();return w};
   let win=make(),session=win.webContents.session;
-  let delay=true, delayed=0;
+  let delay=true, delayed=0, injectFailures=false, failedRequests=0, failedURL;
   session.webRequest.onBeforeRequest((details,cb)=>{
+    if(injectFailures && details.url.includes('/g/') && !details.url.includes('couch=')) {
+      failedURL ??= details.url;
+      if(details.url===failedURL && failedRequests<2){failedRequests++;cb({cancel:true});return;}
+    }
     if(delay&&details.url.includes('/g/')&&!details.url.includes('couch=')&&delayed++<2)setTimeout(()=>cb({}),1500);else cb({});
   });
   let js=code=>win.webContents.executeJavaScript(code);
@@ -33,11 +37,14 @@ app.whenReady().then(async()=>{
   const wait=async(code,iterations=600)=>{for(let i=0;i<iterations;i++){if(await js(code))return;await sleep(100)}console.error('STATE',await js(`({url:location.href,text:document.body.innerText,state:window.couchDownloads?.getSnapshot(),frames:[...document.querySelectorAll('iframe')].map(f=>f.src)})`));throw Error('Wait failed: '+code)};
   await win.loadURL(site+'/play/'+slug);
   await wait(`!!window.couchDownloads`);
+  assert.match(await js('document.body.innerText'),/Download size: [\d.]+ MB/,'Size shown before download');
+  assert.match(await js('document.body.innerText'),/browser’s storage on this device/,'Storage location shown');
   await js(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Download').click()`);
   await wait(`window.couchDownloads.getSnapshot().entries.some(e=>e.status==='downloading')`);
   await js(`window.couchDownloads.pause(window.couchDownloads.getSnapshot().entries[0].src)`);
   await reload();
   await wait(`window.couchDownloads?.getSnapshot().entries[0]?.status==='paused'`);
+  injectFailures=!!process.env.FAIL_DOWNLOADS;
   await js(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Resume download').click()`);
   await wait(`window.couchDownloads.getSnapshot().entries[0].status==='downloading'`);
   let queuedSrc;
@@ -61,9 +68,11 @@ app.whenReady().then(async()=>{
     await wait(`window.couchDownloads.getSnapshot().entries.length===1`);
   }
   delay=false;
+  if(process.env.FAIL_DOWNLOADS)assert.equal(failedRequests,2,'Two failed asset transfers recovered automatically');
   await js(`document.querySelector('.download-corner > button').click()`);
   await js(`document.querySelector('a[href="/downloads"]').click()`);
   await wait(`location.pathname==='/downloads'&&!!document.querySelector('.download-card')`);
+  assert.match(await js('document.body.innerText'),/Download size: [\d.]+ MB · [\d.]+ MB downloaded/,'Library shows total and downloaded bytes');
   for(const [width,height,name] of [[390,844,'phone'],[844,390,'landscape'],[768,1024,'tablet']]){
     win.setContentSize(width,height);await sleep(250);
     assert.equal(await js('document.documentElement.scrollWidth<=innerWidth'),true,'No overflow '+name);

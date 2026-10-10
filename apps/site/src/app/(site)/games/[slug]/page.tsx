@@ -1,3 +1,5 @@
+import { buildDownloadManifest } from "@/lib/download";
+import { downloadSize } from "@/lib/download-format";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
@@ -45,9 +47,11 @@ export default async function GamePage({ params }: Props) {
             <dd>{playersText(game.playersMin, game.playersMax)}</dd>
             <dt>Plays with</dt>
             <dd>{controlsList(game).join(", ")}</dd>
+            {game.buildId && <><dt>Download size</dt><dd>{downloadSize(buildDownloadManifest(game.buildId).bytes)}</dd></>}
             <dt>Played</dt>
             <dd>{countText(game.plays, "time", "times")}</dd>
           </dl>
+          <p className="muted">Downloads are saved in this browser’s storage on this device, not your Downloads folder. Clearing browser data removes saved games.</p>
           {game.tags.length > 0 && (
             <div className="chips">
               {game.tags.map((tag) => <Link key={tag} className="chip" href={`/games?tag=${encodeURIComponent(tag)}`}>{tag}</Link>)}
