@@ -28,8 +28,17 @@
     let shell;
     const prepareShell = () => {
       if (!('serviceWorker' in navigator)) return Promise.resolve(null);
-      shell ??= navigator.serviceWorker.register('/offline-worker.js', {scope:'/',updateViaCache:'none'})
-        .then(() => navigator.serviceWorker.ready).catch(() => { shell = null; return null; });
+      shell ??= (async () => {
+        for(let attempt=0;;attempt++) {
+          try {
+            await navigator.serviceWorker.register('/offline-worker.js', {scope:'/',updateViaCache:'none'});
+            return await navigator.serviceWorker.ready;
+          } catch(error) {
+            if(attempt>=2 || ['SecurityError','NotAllowedError'].includes(error.name)) throw error;
+            await new Promise(resolve=>setTimeout(resolve,1000*(attempt+1)));
+          }
+        }
+      })().catch(() => { shell = null; return null; });
       return shell;
     };
     void prepareShell();
@@ -44,7 +53,14 @@
       update(active.src, {status:'error', message}, true);
       finish();
     };
-    const arm = () => { clearTimeout(timer); timer = setTimeout(() => failure('The saved files could not be reached. Reconnect and retry.'), 60000); };
+    const connectionFailure = message => {
+      if(active && !active.contacted && (active.attempt || 0)<1) {
+        jobs.unshift({src:active.src,action:active.action,attempt:1});
+        finish(); return;
+      }
+      failure(message);
+    };
+    const arm = () => { clearTimeout(timer); timer = setTimeout(() => connectionFailure('The saved files could not be reached. Reconnect and retry.'), 60000); };
     function pump() {
       if (active || !jobs.length) return;
       const job = jobs.shift();
@@ -56,13 +72,14 @@
       active = {...job,frame};
       update(job.src, {status:job.action === 'download' ? 'downloading' : job.action === 'remove' ? 'removing' : 'checking',message:undefined}, true);
       frame.src = job.src + '?couch=download&action=' + job.action;
-      frame.onerror = () => failure('The download could not connect. Reconnect and retry.');
+      frame.onerror = () => { if(active?.frame===frame)connectionFailure('The download could not connect. Reconnect and retry.'); };
       arm();
       document.body.append(frame);
     }
     window.addEventListener('message', event => {
       if (!active || event.source !== active.frame.contentWindow || event.origin !== gamesOrigin || event.data?.type !== 'gigacouch-download') return;
       const data = event.data;
+      active.contacted = true;
       arm();
       if (data.status === 'heartbeat') return;
       if (data.status === 'error') return failure(String(data.message || 'Download failed. Please retry.'));

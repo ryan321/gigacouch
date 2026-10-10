@@ -23,8 +23,12 @@ app.whenReady().then(async()=>{
   const partition='persist:library-check-'+Date.now();
   const make=()=>{const w=new BrowserWindow({width:1200,height:850,useContentSize:true,show:false,focusable:false,webPreferences:{partition,backgroundThrottling:false}});w.webContents.on('console-message',e=>{if(e.level==='error')console.error('PAGE',e.message)});w.setOpacity(0);w.setIgnoreMouseEvents(true);w.showInactive();return w};
   let win=make(),session=win.webContents.session;
-  let delay=true, delayed=0, injectFailures=false, failedRequests=0, failedURL;
+  let delay=true, delayed=0, injectFailures=false, failedRequests=0, failedURL, shellFailures=0, workerFailures=0;
   session.webRequest.onBeforeRequest((details,cb)=>{
+    if(process.env.FAIL_BOOTSTRAP) {
+      if(details.url.endsWith('/offline-worker.js') && shellFailures<2){shellFailures++;cb({cancel:true});return;}
+      if(details.url.includes('couch=worker') && workerFailures<2){workerFailures++;cb({cancel:true});return;}
+    }
     if(injectFailures && details.url.includes('/g/') && !details.url.includes('couch=')) {
       failedURL ??= details.url;
       if(details.url===failedURL && failedRequests<2){failedRequests++;cb({cancel:true});return;}
@@ -68,6 +72,7 @@ app.whenReady().then(async()=>{
     await wait(`window.couchDownloads.getSnapshot().entries.length===1`);
   }
   delay=false;
+  if(process.env.FAIL_BOOTSTRAP){assert.equal(shellFailures,2);assert.equal(workerFailures,2);}
   if(process.env.FAIL_DOWNLOADS)assert.equal(failedRequests,2,'Two failed asset transfers recovered automatically');
   await js(`document.querySelector('.download-corner > button').click()`);
   await js(`document.querySelector('a[href="/downloads"]').click()`);

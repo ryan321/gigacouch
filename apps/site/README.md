@@ -104,7 +104,7 @@ are saved in this browser’s storage on this device, not the Downloads folder; 
 The play screen starts with **Download**. Clicking it downloads the uploaded build into browser storage and
 shows progress; the button becomes **Play** only after every file is saved. The game does not execute during
 the download. Play enters the game and full screen, and counts the play. A controller's bottom face button
-does the same two steps. Transient transfer failures retry twice automatically; large files time out only
+does the same two steps. Initial service-worker connections and transient transfers retry twice automatically; large files time out only
 after 60 seconds without incoming bytes. Other failures identify the file or storage problem and offer Retry;
 completed files are reused. Manifest sizes exclude macOS transfer metadata.
 
@@ -129,6 +129,7 @@ site on port 3101 using the existing Node 22, shuts that server down, and opens 
 for queue ordering. The checks exercise navigation during download, pause/reload/resume, cold offline launch,
 cache eviction, recovery, removal, and phone/tablet layouts. The test profile stays on the external drive. Local
 cold-offline checks passed for Star Scramble and Spooky Game; real phone hardware and controllers remain untested.
+`FAIL_BOOTSTRAP=1 ISOLATED_TEST=1` checks recovery from blocked initial site/game worker requests.
 `FAIL_DOWNLOADS=1 ISOLATED_TEST=1` checks recovery from two blocked asset requests, then cold offline play.
 `WORKER_UPGRADE=1 ISOLATED_TEST=1` also checks migration from the previous download worker and loader. The
 downloader explicitly updates and waits for the new worker before declaring the saved game ready offline.
@@ -187,3 +188,13 @@ Database changes go at the end of the list in `src/lib/db.ts`. Don't edit one th
 - **Rollback:** old builds are kept, but there's no button to roll back to one yet.
 - **Safety:** reporting, admin tools, and the legal pages.
 - **Production hosting:** per-game domains, object storage, and Neon instead of SQLite.
+
+### Spooky phone build (October 10)
+
+Live build `995a0fbfe7e21f569c1c66a6b6740860` adapts its graphics budget to touch devices, loads rooms on entry,
+and keeps its loader visible through first rendered frames. It protects touch play from denied Gamepad access.
+The source and touch/desktop gameplay checks live in the sibling spooky-game repository. The new build was
+published after matching all 206 files to the tested package by SHA-256; unchanged assets are hard-linked to
+retained build `39839120ffcc2ec2627a664986e357e4` to stay within the Fly volume. Future versions must keep build
+files immutable (write new files rather than modifying hard links). Cached old versions remain separate.
+Physical iPhone Safari performance needs retesting; Chromium touch tests do not certify it.

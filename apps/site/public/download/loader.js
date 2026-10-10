@@ -26,8 +26,8 @@
     let registration = await navigator.serviceWorker.getRegistration(base.href);
     if (!registration || navigator.onLine) {
       try {
-        registration = await navigator.serviceWorker.register(new URL('index.html?couch=worker', base), {scope:base.pathname, updateViaCache:'none'});
-        if(registration.active) await registration.update();
+        registration = await retry(() => navigator.serviceWorker.register(new URL('index.html?couch=worker', base), {scope:base.pathname, updateViaCache:'none'}));
+        if(registration.active && !registration.installing && !registration.waiting) await registration.update();
       }
       catch(error) { if(!registration) throw error; }
     }
@@ -107,7 +107,7 @@
                     clearTimeout(stalled);
                   })()];
                   try { await Promise.all(tasks); }
-                  catch(error) { transfer.abort(); await Promise.allSettled(tasks); throw error; }
+                  catch(error) { const cause=transfer.signal.aborted ? transfer.signal.reason : error; transfer.abort(); await Promise.allSettled(tasks); throw cause; }
                 } finally { clearTimeout(stalled); }
               });
             } catch(error) { error.file = file.path; throw error; }

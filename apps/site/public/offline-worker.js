@@ -1,5 +1,5 @@
 // Cache only the public offline shell. Account pages, API responses and game code never enter this cache.
-// Shell revision 2: download sizes and byte progress.
+// Shell revision 3: retry initial worker connections.
 const CACHE = 'gigacouch-offline-shell-v1';
 const FILES = ['/offline.html','/offline.css','/offline.js','/download/manager.js'];
 self.addEventListener('install',event=>event.waitUntil((async()=>{
