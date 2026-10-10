@@ -191,10 +191,11 @@ Database changes go at the end of the list in `src/lib/db.ts`. Don't edit one th
 
 ### Spooky phone build (October 10)
 
-Live build `995a0fbfe7e21f569c1c66a6b6740860` adapts its graphics budget to touch devices, loads rooms on entry,
-and keeps its loader visible through first rendered frames. It protects touch play from denied Gamepad access.
+Live build `1ec7b02f25e16b1ea3449cc70ffd0ae4` uses a bounded adaptive graphics budget on touch devices, disables
+phone dynamic shadows, and prepares camera views behind the loader. Camera timing is independent of the simulation
+step cap. Rooms load on entry, and denied Gamepad access does not stop touch play.
 The source and touch/desktop gameplay checks live in the sibling spooky-game repository. The new build was
 published after matching all 206 files to the tested package by SHA-256; unchanged assets are hard-linked to
-retained build `39839120ffcc2ec2627a664986e357e4` to stay within the Fly volume. Future versions must keep build
+retained build `995a0fbfe7e21f569c1c66a6b6740860` to stay within the Fly volume. Future versions must keep build
 files immutable (write new files rather than modifying hard links). Cached old versions remain separate.
 Physical iPhone Safari performance needs retesting; Chromium touch tests do not certify it.

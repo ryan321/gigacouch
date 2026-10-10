@@ -33,6 +33,9 @@ V1 is a website: accounts, profiles, uploading web games, browsing, and playing 
 - [x] Address the reported Spooky iPhone freeze with a smaller touch-device graphics budget, on-demand interiors,
   visible loading until rendered frames, runtime error UI, and touch input independent of controller permissions.
   The packaged game passed Chromium touch/animation and desktop regressions; physical Safari retest remains open.
+- [x] Follow up on reported iPhone periodic stalls/choppy camera: phone shadows off, bounded adaptive resolution,
+  camera-view preparation behind the loader, elapsed-time camera rotation, and touch-drag capture fixes in Spooky.
+  Packaged Chromium touch/walking/shop checks passed; the physical Safari performance retest remains open.
 - [ ] Test games and offline storage on actual mobile devices; tune game graphics/controls where those tests
   require it. Optional separate mobile builds remain a later option, not part of this pass.
 - [x] Controller start and the system menu: A starts the game. Holding Select and Start, or pressing Home, opens Resume, Restart game, Full screen, and Leave game, with d-pad, A, and B. Holding one of the two buttons shows a hint. Checked with a stand-in pad in Chromium, and by hand in Chrome on a Mac with an Xbox Series controller over Bluetooth. The Xbox button likely never reaches Chrome on a Mac.
