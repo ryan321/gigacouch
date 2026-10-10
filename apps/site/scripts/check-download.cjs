@@ -29,7 +29,7 @@ app.whenReady().then(async()=>{
   await wait(`!![...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Play')`);
   assert.equal(await js(`document.querySelectorAll('iframe').length`),0,'Game still does not run when download completes');
   fs.writeFileSync('/tmp/gigacouch-download-ready.png',(await win.webContents.capturePage()).toPNG());
-  // Cache must be sufficient even with the network unavailable at launch.
+  // Emulated offline is a quick check. check-library.cjs shuts down an isolated server for cold-offline proof.
   win.webContents.session.enableNetworkEmulation({offline:true});
   await js(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Play').click()`);
   let frame;
@@ -45,6 +45,6 @@ app.whenReady().then(async()=>{
     assert.equal(await frame.executeJavaScript('!!window.__game'),true,'Spooky runtime starts offline');
   }
   win.webContents.session.disableNetworkEmulation();
-  console.log('PASS: Download → progress → Play; no early game execution; cached launch while offline.');
+  console.log('PASS: Download → progress → Play; no early game execution; cached launch with emulated offline networking (see check-library.cjs for cold-offline proof).');
   clearTimeout(timer);app.quit();
 }).catch(error=>{console.error(error);app.exit(1)});

@@ -1,6 +1,8 @@
 import type { Metadata, Viewport } from "next";
 import type { ReactNode } from "react";
 import "./globals.css";
+import { DownloadProvider } from "@/components/Downloads";
+import { GAMES_ORIGIN } from "@/lib/config";
 
 export const metadata: Metadata = {
   title: { default: "Giga Couch", template: "%s – Giga Couch" },
@@ -13,7 +15,7 @@ export const viewport: Viewport = { themeColor: "#101722", colorScheme: "dark" }
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body><DownloadProvider gamesOrigin={GAMES_ORIGIN}>{children}</DownloadProvider></body>
     </html>
   );
 }

@@ -102,16 +102,33 @@ shows progress; the button becomes **Play** only after every file is saved. The 
 the download. Play enters the game and full screen, and counts the play. A controller's bottom face button
 does the same two steps. Failed or storage-limited downloads offer Retry; completed files are reused.
 
-Downloads use a service worker scoped to each immutable build on the games origin. This preserves account
-isolation and lets the launched game read the files already downloaded. The browser may evict saved files;
-opening the play screen and pressing Download checks them again. External URLs used by a game still need
-the network, and the game may take time to prepare graphics after Play. This is not an offline website.
+Downloads continue across site navigation. The upper-right Downloads panel shows the active transfer and queue;
+`/downloads` lists saved builds, size, saved date, Pause/Resume and Remove. Closing or reloading the tab pauses
+unfinished downloads, preserving complete files for Resume. New versions download separately; saved versions
+remain available until removed. The saved player stays in the shared layout so other queued downloads continue.
 
-`scripts/check-download.cjs`, run with an already-installed Electron, checks the button sequence, progress,
-no early execution, and launching from saved files with networking disabled. Set `GAME_SLUG=spooky-game-browser-version`
-to check the complete Spooky runtime too. Local checks passed for both games; the public Fly site also passed
-the Star Scramble check, including a failed download and retry, and all 40 HTTP smoke checks. These checks do
-not verify real controllers or actual mobile devices.
+The public offline shell (`/offline.html`) is cached on the account origin without caching account pages or API
+responses. When the server cannot be reached, opening the site shows that library. Each game's own worker and
+cache stay on the games origin, including the small helper needed to check/remove saved files offline. Saved
+files are checked on reopening; missing files turn into resumable downloads rather than a false Ready state.
+Only downloaded, self-contained game builds can run completely offline: external services still need a network.
+Browser eviction or clearing site data can remove downloads. Closing the browser does not continue downloading.
+
+The library and menus adapt to phone portrait, landscape, and tablet sizes, with touch-sized controls. Games
+still supply their own touch controls and graphics settings; this pass does not create separate mobile builds.
+
+`scripts/check-library.cjs` runs with an already-installed Electron. `ISOLATED_TEST=1` starts the built standalone
+site on port 3101 using the existing Node 22, shuts that server down, and opens a new window offline. Set
+`GAME_SLUG=spooky-game-browser-version` for the complete Spooky runtime, or `TEST_QUEUE=1` with Star Scramble
+for queue ordering. The checks exercise navigation during download, pause/reload/resume, cold offline launch,
+cache eviction, recovery, removal, and phone/tablet layouts. The test profile stays on the external drive. Local
+cold-offline checks passed for Star Scramble and Spooky Game; real phone hardware and controllers remain untested.
+`WORKER_UPGRADE=1 ISOLATED_TEST=1` also checks migration from the previous download worker and loader. The
+downloader explicitly updates and waits for the new worker before declaring the saved game ready offline.
+For a live deployed site, use `SITE=<origin> ONLINE_ONLY=1` to check navigation and responsive layouts; Electron's
+network emulation alone does not reliably cut off service-worker requests, so it is not our cold-offline proof.
+The Fly deployment passed that browser check and all 40 HTTP smoke checks. Downloads made before the library
+was introduced need one click of Download to add their listing and offline helpers; existing game files are reused.
 
 The play page reads pads itself, alongside the game. Chrome gives pad data to every visible frame, whichever one has focus.
 

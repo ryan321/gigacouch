@@ -13,7 +13,7 @@ export default async function SiteLayout({ children }: { children: ReactNode }) 
       <main>{children}</main>
       <footer className="site-footer">
         <div className="page">
-          <p>Games run in Chrome on a computer, with up to four controllers, a keyboard, or a mouse.</p>
+          <p>Play web games with a controller, keyboard, mouse, or a game's touch controls. Mobile support depends on the game.</p>
           <p>
             <Link href="/games">Browse games</Link>
           </p>

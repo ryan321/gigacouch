@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useDownloads, type Download } from "./Downloads";
 import { BUTTON, PAD_SLOTS, PressWatcher, buttonNames, connectedPads, padName, type ButtonNames } from "./pads";
 
 type Props = {
@@ -23,15 +24,15 @@ export function Player({ game, src, controls }: Props) {
   const router = useRouter();
   const stage = useRef<HTMLDivElement>(null);
   const frame = useRef<HTMLIFrameElement>(null);
-  const downloader = useRef<HTMLIFrameElement>(null);
   const launchButton = useRef<HTMLButtonElement>(null);
   const menuButtons = useRef<(HTMLButtonElement | null)[]>([]);
   const counted = useRef(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const [started, setStarted] = useState(false);
-  const [download, setDownload] = useState<{status:"idle" | "downloading" | "ready" | "error"; loaded:number; total:number; message?:string}>({status:"idle", loaded:0, total:0});
-  const [attempt, setAttempt] = useState(0);
+  const {manager, state:downloads} = useDownloads();
+  const download: Download | {status:"idle"; loaded:number; total:number; message?:string} = downloads.entries.find(item=>item.src===src) ?? {status:"idle",loaded:0,total:0};
+  const waiting = ["queued","downloading","checking","removing"].includes(download.status);
   const [run, setRun] = useState(0);
   const [slots, setSlots] = useState<Slot[]>(Array(PAD_SLOTS).fill(null));
   const [names, setNames] = useState<ButtonNames>(buttonNames(null));
@@ -55,10 +56,9 @@ export function Player({ game, src, controls }: Props) {
   }, []);
 
   const start = useCallback(() => {
-    if (download.status === "downloading") return;
+    if (!manager || waiting) return;
     if (download.status !== "ready") {
-      setAttempt(value => value + 1);
-      setDownload({status:"downloading", loaded:0, total:0});
+      void manager.download({...game,src,controls});
       return;
     }
     // Recent Chrome counts a controller press as a user action, so full
@@ -70,26 +70,7 @@ export function Player({ game, src, controls }: Props) {
       counted.current = true;
       fetch(`/api/games/${game.id}/plays`, { method: "POST", keepalive: true }).catch(() => {});
     }
-  }, [game.id, download.status]);
-
-  useEffect(() => {
-    if (download.status !== "downloading") return;
-    let timeout: ReturnType<typeof setTimeout>;
-    const fail = () => setDownload(previous => previous.status === "downloading" ? {...previous, status:"error", message:"The download stopped responding. Please retry."} : previous);
-    const armTimeout = () => { clearTimeout(timeout); timeout = setTimeout(fail, 60000); };
-    const receive = (event: MessageEvent) => {
-      if (event.origin !== new URL(src).origin || event.source !== downloader.current?.contentWindow || event.data?.type !== "gigacouch-download") return;
-      armTimeout();
-      const data = event.data;
-      if (data.status === "error") setDownload(previous => ({...previous, status:"error", message:data.message}));
-      else if ((data.status === "ready" || data.status === "downloading") && Number.isFinite(data.loaded) && Number.isFinite(data.total) && data.loaded >= 0 && data.total >= data.loaded) {
-        setDownload({status:data.status, loaded:data.loaded, total:data.total});
-      }
-    };
-    armTimeout();
-    window.addEventListener("message", receive);
-    return () => { clearTimeout(timeout); window.removeEventListener("message", receive); };
-  }, [download.status, src, attempt]);
+  }, [game, download.status, manager, waiting, src, controls]);
 
   useEffect(() => {
     if (download.status === "ready" || download.status === "error") launchButton.current?.focus();
@@ -231,14 +212,6 @@ export function Player({ game, src, controls }: Props) {
 
   return (
     <div className="play" ref={stage}>
-      {!started && download.status === "downloading" && <iframe
-        key={attempt}
-        ref={downloader}
-        src={`${src}?couch=download`}
-        title="Game download"
-        hidden
-        sandbox="allow-scripts allow-same-origin"
-      />}
       {started ? (
         <>
           <iframe
@@ -325,13 +298,14 @@ export function Player({ game, src, controls }: Props) {
               </>
             )}
             <div className="form-actions">
-              <button ref={launchButton} type="button" className="button big" autoFocus disabled={download.status === "downloading"} onClick={start}>
-                {download.status === "idle" ? "Download" : download.status === "downloading" ? "Downloading…" : download.status === "error" ? "Retry download" : "Play"}
+              <button ref={launchButton} type="button" className="button big" autoFocus disabled={!manager || waiting} onClick={start}>
+                {download.status === "ready" ? "Play" : download.status === "idle" ? "Download" : download.status === "paused" ? "Resume download" : download.status === "error" ? "Retry download" : download.status === "checking" ? "Checking…" : download.status === "queued" ? "Queued…" : download.status === "removing" ? "Removing…" : "Downloading…"}
               </button>
               <span className="muted">
                 {game.gamepad ? `Or press ${names.south} on a controller.` : "Or press Enter."}
               </span>
             </div>
+            {downloads.error && <p role="alert">{downloads.error}</p>}
             {download.status !== "idle" && <div className="game-download" aria-live="polite">
               {download.status === "downloading" && <>
                 <progress aria-label="Game download" max={100} value={download.total ? Math.min(99, Math.floor(download.loaded / download.total * 100)) : 0} />
@@ -340,7 +314,8 @@ export function Player({ game, src, controls }: Props) {
               {download.status === "ready" && <p>Download complete. Ready to play.</p>}
               {download.status === "error" && <p role="alert">{download.message}</p>}
             </div>}
-            {download.status === "idle" && <p className="muted">Download the game first, then press Play when you’re ready.</p>}
+            {!started && <Link className="button secondary" href="/games">Keep browsing games</Link>}
+            {download.status === "idle" && <p className="muted">{downloads.entries.some(item=>item.id===game.id && item.src!==src) ? "A new version is available. Download it when you’re ready; your saved version stays in Downloaded games." : "Download the game first, then press Play when you’re ready."}</p>}
             <p className="muted">
               {game.gamepad
                 ? `During the game, hold ${names.menu} together for the menu. Esc leaves full screen.`
