@@ -160,6 +160,13 @@ async function smoke() {
   check("Scripts get a JavaScript type and long caching", script.headers.get("content-type")?.startsWith("text/javascript") && /immutable/.test(script.headers.get("cache-control") ?? ""));
   const onSite = await fetch(`${SITE}/g/${build}/index.html`);
   check("Game files are never served on the site's origin", onSite.status === 404, String(onSite.status));
+  const manifestResponse = await fetch(`${GAMES}/g/${build}/index.html?couch=manifest`);
+  const manifest = await manifestResponse.json();
+  check("Download manifest lists the uploaded files and size", manifestResponse.ok && manifest.files.some(file => file.path === "index.html") && manifest.bytes > 0);
+  const privateManifest = await fetch(`${SITE}/g/${build}/index.html?couch=manifest`);
+  check("Download helpers stay off the account origin", privateManifest.status === 404);
+  const worker = await fetch(`${GAMES}/g/${build}/index.html?couch=worker`);
+  check("Download worker is JavaScript and is not cached as a game asset", worker.ok && worker.headers.get("content-type").startsWith("text/javascript") && worker.headers.get("cache-control") === "no-store");
   const escape = await fetch(`${GAMES}/g/${build}/..%2f..%2fsite.sqlite`);
   check("Paths can't leave a build's folder", escape.status === 404, String(escape.status));
   const pageOnGames = await fetch(`${GAMES}/games`, { redirect: "manual" });

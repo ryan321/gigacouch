@@ -97,6 +97,22 @@ The play page shows the game in a sandboxed frame from the games origin. The fra
 
 ## Controllers on the play page
 
+The play screen starts with **Download**. Clicking it downloads the uploaded build into browser storage and
+shows progress; the button becomes **Play** only after every file is saved. The game does not execute during
+the download. Play enters the game and full screen, and counts the play. A controller's bottom face button
+does the same two steps. Failed or storage-limited downloads offer Retry; completed files are reused.
+
+Downloads use a service worker scoped to each immutable build on the games origin. This preserves account
+isolation and lets the launched game read the files already downloaded. The browser may evict saved files;
+opening the play screen and pressing Download checks them again. External URLs used by a game still need
+the network, and the game may take time to prepare graphics after Play. This is not an offline website.
+
+`scripts/check-download.cjs`, run with an already-installed Electron, checks the button sequence, progress,
+no early execution, and launching from saved files with networking disabled. Set `GAME_SLUG=spooky-game-browser-version`
+to check the complete Spooky runtime too. Local checks passed for both games; the public Fly site also passed
+the Star Scramble check, including a failed download and retry, and all 40 HTTP smoke checks. These checks do
+not verify real controllers or actual mobile devices.
+
 The play page reads pads itself, alongside the game. Chrome gives pad data to every visible frame, whichever one has focus.
 
 - **Starting:** the bottom face button (A on Xbox) starts the game.

@@ -19,6 +19,16 @@ V1 is a website: accounts, profiles, uploading web games, browsing, and playing 
 - [ ] A separate games domain with one subdomain per game, on the Public Suffix List.
 - [x] Home with a live controller panel, new games, and most played; browse with search, players, controls, tags, and sort; a page for each game. Featured games are not built.
 - [x] Play page: sandboxed frame, full screen, a check for each controller, keyboard focus in the game, and play counts.
+- [x] Download before playing: explicit Download button, progress, retry, then Play after all uploaded files are
+  saved in browser storage. No game execution before Play. Separate games-origin cache per build; Star Scramble
+  and the web Spooky Game launched with networking disabled in Electron. External game services still need a network.
+- [ ] Next pass: keep downloads running while browsing other games, with a persistent status/queue in the upper
+  right. Add a Downloaded games library and cached site shell so users can reopen the site and launch downloaded
+  games fully offline; handle interrupted downloads, storage usage/removal, browser eviction, and build updates.
+  Current build caching alone does not make the website available offline.
+- [ ] Mobile pass: responsive browsing/download status/offline library and touch navigation; test games on actual
+  phones in portrait and landscape. Prefer one adaptive web build with touch controls and device-appropriate
+  graphics. Consider optional mobile builds under the same listing only where a game needs a distinct version.
 - [x] Controller start and the system menu: A starts the game. Holding Select and Start, or pressing Home, opens Resume, Restart game, Full screen, and Leave game, with d-pad, A, and B. Holding one of the two buttons shows a hint. Checked with a stand-in pad in Chromium, and by hand in Chrome on a Mac with an Xbox Series controller over Bluetooth. The Xbox button likely never reaches Chrome on a Mac.
 - [ ] Safety: report button, admin unpublish and suspend, terms, content rules, privacy policy, and copyright takedown.
 - [ ] 15 to 20 launch games covering single-player, local multiplayer, keyboard, and pads.
